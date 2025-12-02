@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NFC Agent Status</title>
+    <style>
+        :root {
+            --bg: #0f0f0f;
+            --card-bg: #1a1a1a;
+            --border: #2a2a2a;
+            --text: #e0e0e0;
+            --text-muted: #808080;
+            --accent: #3b82f6;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --error: #ef4444;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 24px;
+            line-height: 1.5;
+        }
+
+        .container {
+            max-width: 640px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 32px;
+        }
+
+        .logo {
+            width: 40px;
+            height: 40px;
+            background: var(--accent);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+
+        .card-title {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 9999px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .status-badge.online {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--success);
+        }
+
+        .status-badge.offline {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--error);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        .info-grid {
+            display: grid;
+            gap: 12px;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .info-row:last-child {
+            border-bottom: none;
+        }
+
+        .info-label {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        .info-value {
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        .reader-list {
+            list-style: none;
+        }
+
+        .reader-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            background: var(--bg);
+            border-radius: 8px;
+            margin-bottom: 8px;
+        }
+
+        .reader-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .reader-icon {
+            width: 36px;
+            height: 36px;
+            background: var(--accent);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+
+        .reader-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .reader-name {
+            font-weight: 500;
+            font-size: 14px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .reader-type {
+            color: var(--text-muted);
+            font-size: 12px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 32px;
+            color: var(--text-muted);
+        }
+
+        .empty-state-icon {
+            font-size: 32px;
+            margin-bottom: 8px;
+            opacity: 0.5;
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 32px;
+            color: var(--text-muted);
+            font-size: 12px;
+        }
+
+        footer a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        .refresh-indicator {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .loading {
+            animation: pulse 1.5s infinite;
+        }
+
+        /* Log viewer styles */
+        .log-controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .log-controls select, .log-controls button {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .log-controls select:hover, .log-controls button:hover {
+            border-color: var(--accent);
+        }
+
+        .log-viewer {
+            max-height: 300px;
+            overflow-y: auto;
+            background: var(--bg);
+            border-radius: 8px;
+            padding: 8px;
+            font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+            font-size: 11px;
+        }
+
+        .log-entry {
+            padding: 4px 8px;
+            border-radius: 4px;
+            margin-bottom: 4px;
+            display: flex;
+            gap: 8px;
+            align-items: flex-start;
+        }
+
+        .log-entry:last-child {
+            margin-bottom: 0;
+        }
+
+        .log-entry.debug { background: rgba(128, 128, 128, 0.1); }
+        .log-entry.info { background: rgba(59, 130, 246, 0.1); }
+        .log-entry.warn { background: rgba(245, 158, 11, 0.15); }
+        .log-entry.error { background: rgba(239, 68, 68, 0.15); }
+
+        .log-time {
+            color: var(--text-muted);
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .log-level {
+            font-weight: 600;
+            width: 50px;
+            flex-shrink: 0;
+        }
+
+        .log-level.debug { color: var(--text-muted); }
+        .log-level.info { color: var(--accent); }
+        .log-level.warn { color: var(--warning); }
+        .log-level.error { color: var(--error); }
+
+        .log-cat {
+            color: var(--text-muted);
+            width: 70px;
+            flex-shrink: 0;
+        }
+
+        .log-msg {
+            flex: 1;
+            word-break: break-word;
+        }
+
+        .log-data {
+            color: var(--text-muted);
+            font-size: 10px;
+            margin-top: 2px;
+        }
+
+        .log-empty {
+            text-align: center;
+            padding: 24px;
+            color: var(--text-muted);
+        }
+
+        .log-stats {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">N</div>
+            <h1>NFC Agent</h1>
+        </header>
+
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Status</span>
+                <span class="status-badge online" id="status-badge">
+                    <span class="status-dot"></span>
+                    <span id="status-text">Online</span>
+                </span>
+            </div>
+            <div class="info-grid">
+                <div class="info-row">
+                    <span class="info-label">Version</span>
+                    <span class="info-value" id="version">-</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Build Time</span>
+                    <span class="info-value" id="build-time">-</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Git Commit</span>
+                    <span class="info-value" id="git-commit">-</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Connected Readers</span>
+                <span class="refresh-indicator" id="reader-count">0 readers</span>
+            </div>
+            <ul class="reader-list" id="reader-list">
+                <li class="empty-state">
+                    <div class="empty-state-icon">-</div>
+                    <div>No readers connected</div>
+                </li>
+            </ul>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Logs</span>
+                <div class="log-controls">
+                    <select id="log-level">
+                        <option value="">All Levels</option>
+                        <option value="debug">Debug</option>
+                        <option value="info">Info</option>
+                        <option value="warn">Warn</option>
+                        <option value="error">Error</option>
+                    </select>
+                    <select id="log-category">
+                        <option value="">All Categories</option>
+                        <option value="http">HTTP</option>
+                        <option value="websocket">WebSocket</option>
+                        <option value="reader">Reader</option>
+                        <option value="card">Card</option>
+                        <option value="system">System</option>
+                    </select>
+                    <button onclick="clearLogs()">Clear</button>
+                    <button onclick="downloadLogs()">Download</button>
+                    <span class="log-stats" id="log-stats"></span>
+                </div>
+            </div>
+            <div class="log-viewer" id="log-viewer">
+                <div class="log-empty">No logs yet</div>
+            </div>
+        </div>
+
+        <footer>
+            <p>NFC Agent by <a href="https://simplyprint.io" target="_blank">SimplyPrint</a></p>
+            <p style="margin-top: 4px;">Auto-refreshes every 5 seconds</p>
+        </footer>
+    </div>
+
+    <script>
+        async function fetchData() {
+            try {
+                // Fetch version info
+                const versionRes = await fetch('/v1/version');
+                const version = await versionRes.json();
+
+                document.getElementById('version').textContent = version.version || '-';
+                document.getElementById('build-time').textContent = formatDate(version.buildTime) || '-';
+                document.getElementById('git-commit').textContent = version.gitCommit ? version.gitCommit.substring(0, 7) : '-';
+
+                // Fetch readers
+                const readersRes = await fetch('/v1/readers');
+                const readers = await readersRes.json();
+
+                updateReaderList(readers);
+
+                // Update status
+                setOnline(true);
+            } catch (error) {
+                console.error('Failed to fetch data:', error);
+                setOnline(false);
+            }
+        }
+
+        function setOnline(online) {
+            const badge = document.getElementById('status-badge');
+            const text = document.getElementById('status-text');
+
+            if (online) {
+                badge.className = 'status-badge online';
+                text.textContent = 'Online';
+            } else {
+                badge.className = 'status-badge offline';
+                text.textContent = 'Offline';
+            }
+        }
+
+        function updateReaderList(readers) {
+            const list = document.getElementById('reader-list');
+            const count = document.getElementById('reader-count');
+
+            count.textContent = readers.length === 1 ? '1 reader' : `${readers.length} readers`;
+
+            if (readers.length === 0) {
+                list.innerHTML = `
+                    <li class="empty-state">
+                        <div class="empty-state-icon">-</div>
+                        <div>No readers connected</div>
+                    </li>
+                `;
+                return;
+            }
+
+            list.innerHTML = readers.map((reader, index) => `
+                <li class="reader-item">
+                    <div class="reader-icon">${index + 1}</div>
+                    <div class="reader-info">
+                        <div class="reader-name" title="${escapeHtml(reader.name)}">${escapeHtml(reader.name)}</div>
+                        <div class="reader-type">Type: ${escapeHtml(reader.type || 'Unknown')}</div>
+                    </div>
+                </li>
+            `).join('');
+        }
+
+        function formatDate(dateStr) {
+            if (!dateStr || dateStr === 'unknown') return 'Unknown';
+            try {
+                const date = new Date(dateStr);
+                return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+            } catch {
+                return dateStr;
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Log functions
+        async function fetchLogs() {
+            try {
+                const level = document.getElementById('log-level').value;
+                const category = document.getElementById('log-category').value;
+
+                let url = '/v1/logs?limit=100';
+                if (level) url += `&level=${level}`;
+                if (category) url += `&category=${category}`;
+
+                const res = await fetch(url);
+                const data = await res.json();
+
+                updateLogViewer(data.entries, data.stats);
+            } catch (error) {
+                console.error('Failed to fetch logs:', error);
+            }
+        }
+
+        function updateLogViewer(entries, stats) {
+            const viewer = document.getElementById('log-viewer');
+            const statsEl = document.getElementById('log-stats');
+
+            if (stats) {
+                statsEl.textContent = `${stats.total_entries}/${stats.max_entries}`;
+            }
+
+            if (!entries || entries.length === 0) {
+                viewer.innerHTML = '<div class="log-empty">No logs yet</div>';
+                return;
+            }
+
+            viewer.innerHTML = entries.map(entry => {
+                const time = new Date(entry.timestamp).toLocaleTimeString();
+                const level = entry.level.toLowerCase();
+                const dataStr = entry.data ? JSON.stringify(entry.data) : '';
+
+                return `
+                    <div class="log-entry ${level}">
+                        <span class="log-time">${time}</span>
+                        <span class="log-level ${level}">${entry.level}</span>
+                        <span class="log-cat">${escapeHtml(entry.category)}</span>
+                        <div class="log-msg">
+                            ${escapeHtml(entry.message)}
+                            ${dataStr ? `<div class="log-data">${escapeHtml(dataStr)}</div>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function clearLogs() {
+            try {
+                await fetch('/v1/logs', { method: 'DELETE' });
+                fetchLogs();
+            } catch (error) {
+                console.error('Failed to clear logs:', error);
+            }
+        }
+
+        async function downloadLogs() {
+            try {
+                // Fetch all logs (up to max)
+                const logsRes = await fetch('/v1/logs?limit=1000');
+                const logsData = await logsRes.json();
+
+                // Fetch version info for context
+                const versionRes = await fetch('/v1/version');
+                const versionData = await versionRes.json();
+
+                // Fetch reader info
+                const readersRes = await fetch('/v1/readers');
+                const readersData = await readersRes.json();
+
+                // Build export object
+                const exportData = {
+                    exportedAt: new Date().toISOString(),
+                    agent: versionData,
+                    readers: readersData,
+                    logs: logsData
+                };
+
+                // Create and download file
+                const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `nfc-agent-logs-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            } catch (error) {
+                console.error('Failed to download logs:', error);
+                alert('Failed to download logs');
+            }
+        }
+
+        // Add event listeners for filter changes
+        document.getElementById('log-level').addEventListener('change', fetchLogs);
+        document.getElementById('log-category').addEventListener('change', fetchLogs);
+
+        // Initial fetch
+        fetchData();
+        fetchLogs();
+
+        // Refresh every 5 seconds
+        setInterval(fetchData, 5000);
+        setInterval(fetchLogs, 2000);
+    </script>
+</body>
+</html>

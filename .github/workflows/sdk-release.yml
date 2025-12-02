@@ -1,0 +1,111 @@
+name: Release SDK
+
+on:
+  push:
+    paths:
+      - 'sdk/**'
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: ./sdk
+        run: npm ci
+
+      - name: Type check
+        working-directory: ./sdk
+        run: npm run typecheck
+
+      - name: Run tests
+        working-directory: ./sdk
+        run: npm test
+
+      - name: Build
+        working-directory: ./sdk
+        run: npm run build
+
+  release:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check if version changed
+        id: version-check
+        working-directory: ./sdk
+        run: |
+          # Get current version
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+
+          # Get previous version (if exists)
+          git show HEAD~1:sdk/package.json > /tmp/prev-package.json 2>/dev/null || echo '{"version":"0.0.0"}' > /tmp/prev-package.json
+          PREV_VERSION=$(node -p "require('/tmp/prev-package.json').version")
+          echo "prev_version=$PREV_VERSION" >> $GITHUB_OUTPUT
+
+          # Check if versions differ
+          if [ "$CURRENT_VERSION" != "$PREV_VERSION" ]; then
+            echo "Version changed from $PREV_VERSION to $CURRENT_VERSION"
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "Version unchanged ($CURRENT_VERSION)"
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Setup Node.js
+        if: steps.version-check.outputs.changed == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        if: steps.version-check.outputs.changed == 'true'
+        working-directory: ./sdk
+        run: npm ci
+
+      - name: Build
+        if: steps.version-check.outputs.changed == 'true'
+        working-directory: ./sdk
+        run: npm run build
+
+      - name: Publish to NPM
+        if: steps.version-check.outputs.changed == 'true'
+        working-directory: ./sdk
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        if: steps.version-check.outputs.changed == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: sdk-v${{ steps.version-check.outputs.current_version }}
+          name: SDK v${{ steps.version-check.outputs.current_version }}
+          body: |
+            ## @simplyprint/nfc-agent v${{ steps.version-check.outputs.current_version }}
+
+            Install via npm:
+            ```bash
+            npm install @simplyprint/nfc-agent@${{ steps.version-check.outputs.current_version }}
+            ```
+
+            Or via CDN:
+            ```html
+            <script src="https://unpkg.com/@simplyprint/nfc-agent@${{ steps.version-check.outputs.current_version }}"></script>
+            ```
+          generate_release_notes: true

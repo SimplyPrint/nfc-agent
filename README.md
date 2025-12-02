@@ -1,0 +1,308 @@
+# NFC Agent
+
+A local HTTP/WebSocket server that enables web applications to communicate with NFC card readers.
+
+[![CI](https://github.com/SimplyPrint/nfc-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/SimplyPrint/nfc-agent/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/SimplyPrint/nfc-agent)](https://goreportcard.com/report/github.com/SimplyPrint/nfc-agent)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![GitHub release](https://img.shields.io/github/v/release/SimplyPrint/nfc-agent)](https://github.com/SimplyPrint/nfc-agent/releases)
+[![Go version](https://img.shields.io/github/go-mod/go-version/SimplyPrint/nfc-agent)](https://go.dev/)
+
+---
+
+Built by [SimplyPrint](https://simplyprint.io) for enabling NFC tag interactions in web-based 3D printing workflows. Designed as a general-purpose NFC gateway that any application can use to read and write NFC cards through a simple API.
+
+## Features
+
+- **Cross-platform** - Works on Windows, macOS, and Linux
+- **Dual API** - HTTP REST API for simple operations, WebSocket for real-time events
+- **NDEF Support** - Read and write URL, text, JSON, and binary data
+- **Multiple Records** - Write multiple NDEF records in a single operation
+- **Security** - Password protection for NTAG chips, permanent card locking
+- **System Tray** - Native system tray integration with status indicator
+- **Auto-start** - Install as a system service for automatic startup
+- **JavaScript SDK** - Full-featured TypeScript SDK for browser and Node.js
+
+## Supported Hardware
+
+NFC Agent works with any **PC/SC compatible** contactless smart card reader. Tested and recommended:
+
+| Manufacturer | Models |
+|--------------|--------|
+| **ACS** | ACR122U, ACR1252U, ACR1255U-J1 (Bluetooth) |
+| **SCM Microsystems** | SCR3310 |
+| **Identiv** | uTrust series |
+| **HID Global** | OMNIKEY series |
+
+### Supported Card Types
+
+- NTAG (213, 215, 216)
+- MIFARE Classic, Ultralight, DESFire
+- ISO 14443 Type A/B
+- FeliCa
+
+## Installation
+
+### macOS
+
+**Option 1: Download DMG**
+
+Download the latest `.dmg` from [GitHub Releases](https://github.com/SimplyPrint/nfc-agent/releases).
+
+**Option 2: Homebrew**
+
+```bash
+brew install simplyprint/tap/nfc-agent
+```
+
+### Windows
+
+Download the installer (`.exe`) from [GitHub Releases](https://github.com/SimplyPrint/nfc-agent/releases) and run it.
+
+### Linux
+
+**Debian/Ubuntu:**
+
+```bash
+# Download the .deb package from GitHub Releases, then:
+sudo dpkg -i nfc-agent_*.deb
+
+# Install PC/SC daemon if not already installed
+sudo apt install pcscd
+sudo systemctl enable --now pcscd
+```
+
+**Fedora/RHEL:**
+
+```bash
+# Download the .rpm package from GitHub Releases, then:
+sudo rpm -i nfc-agent-*.rpm
+
+# Install PC/SC daemon
+sudo dnf install pcsc-lite
+sudo systemctl enable --now pcscd
+```
+
+## Quick Start
+
+1. **Connect** your NFC reader via USB
+2. **Run** the NFC Agent:
+   ```bash
+   nfc-agent
+   ```
+3. **Open** http://127.0.0.1:32145 in your browser to see the status page
+4. **Place** an NFC card on the reader - the web interface will display card information
+
+## CLI Usage
+
+```bash
+nfc-agent              # Run with system tray
+nfc-agent --no-tray    # Run in headless mode (servers, scripts)
+nfc-agent install      # Install auto-start service
+nfc-agent uninstall    # Remove auto-start service
+nfc-agent version      # Show version information
+```
+
+## Configuration
+
+Configure via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NFC_AGENT_PORT` | `32145` | HTTP/WebSocket server port |
+| `NFC_AGENT_HOST` | `127.0.0.1` | Server bind address |
+
+## API Overview
+
+### HTTP Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/v1/readers` | List connected readers |
+| `GET` | `/v1/readers/{n}/card` | Read card on reader N |
+| `POST` | `/v1/readers/{n}/card` | Write data to card |
+| `POST` | `/v1/readers/{n}/erase` | Erase card data |
+| `POST` | `/v1/readers/{n}/lock` | Lock card (permanent!) |
+| `POST` | `/v1/readers/{n}/password` | Set password protection |
+| `DELETE` | `/v1/readers/{n}/password` | Remove password |
+| `POST` | `/v1/readers/{n}/records` | Write multiple NDEF records |
+| `GET` | `/v1/supported-readers` | List supported reader models |
+| `GET` | `/v1/version` | Get version info |
+| `GET` | `/v1/health` | Health check |
+
+### WebSocket
+
+Connect to `ws://127.0.0.1:32145/v1/ws` for real-time card events.
+
+**Message Types:**
+- `list_readers` - Get connected readers
+- `read_card` - Read card data
+- `write_card` - Write data to card
+- `subscribe` / `unsubscribe` - Real-time card detection
+- `erase_card`, `lock_card`, `set_password`, `remove_password`
+
+**Events:**
+- `card_detected` - Card placed on reader
+- `card_removed` - Card removed from reader
+
+See the [SDK documentation](sdk/README.md) for detailed API reference.
+
+## JavaScript SDK
+
+Install the official SDK for browser and Node.js:
+
+```bash
+npm install @simplyprint/nfc-agent
+```
+
+### Quick Example
+
+```typescript
+import { NFCAgentWebSocket } from '@simplyprint/nfc-agent';
+
+const ws = new NFCAgentWebSocket();
+await ws.connect();
+
+// Subscribe to real-time card events
+await ws.subscribe(0);
+
+ws.on('card_detected', (event) => {
+  console.log('Card UID:', event.card.uid);
+  console.log('Card Type:', event.card.type);
+  console.log('Data:', event.card.data);
+});
+
+// Write data to card
+await ws.writeCard(0, {
+  data: 'https://example.com',
+  dataType: 'url'
+});
+```
+
+### Browser (CDN)
+
+```html
+<script src="https://unpkg.com/@simplyprint/nfc-agent"></script>
+<script>
+  const ws = new NFCAgent.WebSocket();
+  ws.connect().then(() => {
+    ws.subscribe(0);
+    ws.on('card_detected', (e) => console.log('Card:', e.card.uid));
+  });
+</script>
+```
+
+See the full [SDK documentation](sdk/README.md) for more examples.
+
+## Building from Source
+
+### Prerequisites
+
+- Go 1.22 or later
+- PC/SC development libraries
+
+**macOS:**
+```bash
+# PC/SC is included in macOS
+```
+
+**Linux:**
+```bash
+sudo apt install libpcsclite-dev  # Debian/Ubuntu
+sudo dnf install pcsc-lite-devel  # Fedora/RHEL
+```
+
+**Windows:**
+```bash
+# PC/SC (WinSCard) is included in Windows
+```
+
+### Build
+
+```bash
+git clone https://github.com/SimplyPrint/nfc-agent.git
+cd nfc-agent
+go build -o nfc-agent ./cmd/nfc-agent
+```
+
+### Run Tests
+
+```bash
+go test -v ./...
+```
+
+## How It Works
+
+NFC Agent uses the PC/SC (Personal Computer/Smart Card) interface to communicate with NFC readers. When a web application needs to interact with an NFC card:
+
+1. Web app connects to NFC Agent via HTTP or WebSocket
+2. NFC Agent sends commands to the reader via PC/SC
+3. Reader communicates with the NFC card
+4. Response flows back through NFC Agent to the web app
+
+```
+┌─────────────┐     HTTP/WS      ┌─────────────┐     PC/SC      ┌──────────┐     NFC      ┌──────┐
+│   Web App   │ ◄──────────────► │  NFC Agent  │ ◄────────────► │  Reader  │ ◄──────────► │ Card │
+└─────────────┘   localhost:32145 └─────────────┘                └──────────┘              └──────┘
+```
+
+## Security Considerations
+
+- NFC Agent binds to `127.0.0.1` by default (localhost only)
+- No authentication is required for local connections
+- For production deployments, consider running behind a reverse proxy with authentication
+- Card locking is **permanent and irreversible** - use with caution
+
+## Troubleshooting
+
+### "No readers found"
+
+1. Ensure your NFC reader is connected via USB
+2. Check if the PC/SC daemon is running:
+   ```bash
+   # Linux
+   sudo systemctl status pcscd
+
+   # macOS - should work automatically
+   ```
+3. Try unplugging and reconnecting the reader
+
+### "Failed to connect to card"
+
+1. Ensure the card is placed correctly on the reader
+2. Some readers have an LED that indicates card detection
+3. Try a different card to rule out card issues
+
+### Linux: Permission denied
+
+Add your user to the `pcscd` group or run with elevated privileges:
+```bash
+sudo usermod -a -G pcscd $USER
+# Log out and back in for changes to take effect
+```
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## License
+
+This project is licensed under the **GNU Affero General Public License v3.0** - see the [LICENSE](LICENSE) file for details.
+
+## Credits
+
+Built with care by [SimplyPrint](https://simplyprint.io) - Cloud-based 3D print management.
+
+---
+
+**Links:**
+- [GitHub Repository](https://github.com/SimplyPrint/nfc-agent)
+- [SDK Documentation](sdk/README.md)
+- [SimplyPrint](https://simplyprint.io)
+- [Report Issues](https://github.com/SimplyPrint/nfc-agent/issues)

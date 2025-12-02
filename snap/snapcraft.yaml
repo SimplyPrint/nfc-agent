@@ -1,0 +1,52 @@
+name: nfc-agent
+base: core22
+version: '1.0.0'
+summary: Local NFC card reader service for web applications
+description: |
+  NFC Agent is a local HTTP service that provides a REST API for interacting
+  with NFC card readers. It enables web applications to read and write NFC
+  cards through a simple API running on localhost.
+
+  Features:
+  - Read NFC card UID and data
+  - Write text, JSON, binary, and URL records
+  - Support for NTAG213/215/216 and MIFARE cards
+  - WebSocket support for real-time card detection
+  - Cross-platform support (Windows, macOS, Linux)
+
+grade: stable
+confinement: strict
+
+architectures:
+  - build-on: amd64
+
+apps:
+  nfc-agent:
+    command: bin/nfc-agent --no-tray
+    daemon: simple
+    restart-condition: on-failure
+    plugs:
+      - network
+      - network-bind
+      - raw-usb
+      - hardware-observe
+
+parts:
+  nfc-agent:
+    plugin: go
+    source: .
+    source-type: local
+    build-snaps:
+      - go/latest/stable
+    build-packages:
+      - libpcsclite-dev
+      - gcc
+    stage-packages:
+      - libpcsclite1
+      - pcscd
+    override-build: |
+      go build -ldflags="-s -w -X github.com/SimplyPrint/nfc-agent/internal/api.Version=${SNAPCRAFT_PROJECT_VERSION}" -o $SNAPCRAFT_PART_INSTALL/bin/nfc-agent ./cmd/nfc-agent
+
+layout:
+  /run/pcscd:
+    bind: $SNAP_COMMON/run/pcscd

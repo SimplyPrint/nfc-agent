@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=NFC Agent
+Comment=Local NFC card reader service
+Exec=/usr/bin/nfc-agent --no-tray
+Icon=nfc-agent
+Terminal=false
+Type=Application
+Categories=Utility;System;
+Keywords=NFC;RFID;Reader;Card;
+StartupNotify=false

@@ -1,0 +1,83 @@
+{
+  "readers": [
+    {
+      "name": "ACR122U",
+      "manufacturer": "ACS",
+      "description": "Popular USB NFC reader",
+      "supportedTags": ["NTAG", "MIFARE Classic", "MIFARE Ultralight", "MIFARE DESFire", "FeliCa", "ISO 14443 Type A", "ISO 14443 Type B"],
+      "capabilities": {
+        "read": true,
+        "write": true,
+        "ndef": true
+      },
+      "limitations": [
+        "May require driver installation on some systems",
+        "Beeps by default (can be disabled)"
+      ]
+    },
+    {
+      "name": "ACR1252U",
+      "manufacturer": "ACS",
+      "description": "Advanced USB NFC reader with display",
+      "supportedTags": ["NTAG", "MIFARE Classic", "MIFARE Ultralight", "MIFARE DESFire", "FeliCa", "ISO 14443 Type A", "ISO 14443 Type B", "ISO 15693"],
+      "capabilities": {
+        "read": true,
+        "write": true,
+        "ndef": true,
+        "display": true
+      },
+      "limitations": []
+    },
+    {
+      "name": "ACR1255U-J1",
+      "manufacturer": "ACS",
+      "description": "Bluetooth NFC reader",
+      "supportedTags": ["NTAG", "MIFARE Classic", "MIFARE Ultralight", "MIFARE DESFire", "ISO 14443 Type A", "ISO 14443 Type B"],
+      "capabilities": {
+        "read": true,
+        "write": true,
+        "ndef": true,
+        "bluetooth": true
+      },
+      "limitations": [
+        "Requires Bluetooth pairing"
+      ]
+    },
+    {
+      "name": "SCM SCR3310",
+      "manufacturer": "SCM Microsystems",
+      "description": "Compact USB smart card reader with NFC support",
+      "supportedTags": ["NTAG", "MIFARE Classic", "MIFARE Ultralight", "ISO 14443 Type A"],
+      "capabilities": {
+        "read": true,
+        "write": true,
+        "ndef": true
+      },
+      "limitations": []
+    },
+    {
+      "name": "Identiv uTrust",
+      "manufacturer": "Identiv",
+      "description": "Professional-grade NFC reader series",
+      "supportedTags": ["NTAG", "MIFARE Classic", "MIFARE Ultralight", "MIFARE DESFire", "ISO 14443 Type A", "ISO 14443 Type B"],
+      "capabilities": {
+        "read": true,
+        "write": true,
+        "ndef": true
+      },
+      "limitations": []
+    },
+    {
+      "name": "HID OMNIKEY",
+      "manufacturer": "HID Global",
+      "description": "Enterprise-grade contactless smart card reader",
+      "supportedTags": ["NTAG", "MIFARE Classic", "MIFARE Ultralight", "MIFARE DESFire", "iCLASS", "ISO 14443 Type A", "ISO 14443 Type B"],
+      "capabilities": {
+        "read": true,
+        "write": true,
+        "ndef": true
+      },
+      "limitations": []
+    }
+  ]
+}

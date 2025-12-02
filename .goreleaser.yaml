@@ -1,0 +1,97 @@
+version: 2
+
+project_name: nfc-agent
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: nfc-agent
+    main: ./cmd/nfc-agent
+    binary: nfc-agent
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - darwin
+      - windows
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      # Windows arm64 not commonly needed
+      - goos: windows
+        goarch: arm64
+      # Linux arm64 can be added later
+      - goos: linux
+        goarch: arm64
+    ldflags:
+      - -s -w
+      - -X github.com/SimplyPrint/nfc-agent/internal/api.Version={{.Version}}
+      - -X github.com/SimplyPrint/nfc-agent/internal/api.BuildTime={{.Date}}
+      - -X github.com/SimplyPrint/nfc-agent/internal/api.GitCommit={{.ShortCommit}}
+
+archives:
+  - id: default
+    format: tar.gz
+    format_overrides:
+      - goos: windows
+        format: zip
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    files:
+      - README.md
+      - LICENSE*
+
+nfpms:
+  - id: packages
+    package_name: nfc-agent
+    vendor: SimplyPrint
+    homepage: https://github.com/SimplyPrint/nfc-agent
+    maintainer: SimplyPrint <support@simplyprint.io>
+    description: NFC card reader agent for web applications
+    license: AGPL-3.0
+    formats:
+      - deb
+      - rpm
+    dependencies:
+      - libpcsclite1
+    recommends:
+      - pcscd
+    contents:
+      - src: ./build/linux/nfc-agent.service
+        dst: /usr/lib/systemd/user/nfc-agent.service
+        type: config
+      - src: ./build/linux/nfc-agent.desktop
+        dst: /usr/share/applications/nfc-agent.desktop
+        type: config
+    scripts:
+      postinstall: ./build/linux/postinstall.sh
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^ci:'
+      - Merge pull request
+      - Merge branch
+
+release:
+  github:
+    owner: SimplyPrint
+    name: nfc-agent
+  draft: false
+  prerelease: auto
+  name_template: "v{{.Version}}"

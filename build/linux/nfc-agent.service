@@ -1,0 +1,15 @@
+[Unit]
+Description=NFC Agent - Local NFC card reader service
+Documentation=https://github.com/SimplyPrint/nfc-agent
+After=graphical-session.target pcscd.service
+Wants=pcscd.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/nfc-agent --no-tray
+Restart=on-failure
+RestartSec=5
+Environment=DISPLAY=:0
+
+[Install]
+WantedBy=default.target

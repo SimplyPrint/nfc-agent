@@ -1,0 +1,1291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NFC Agent Test Interface</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: white;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .card h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 600;
+        }
+
+        button:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        button.active {
+            background: #51cf66;
+        }
+
+        button.active:hover {
+            background: #40c057;
+        }
+
+        .reader-list {
+            margin-top: 15px;
+        }
+
+        .reader-item {
+            background: #f8f9fa;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .reader-item.polling {
+            border-left-color: #51cf66;
+            background: #e7f5ff;
+        }
+
+        .reader-info {
+            flex: 1;
+        }
+
+        .reader-name {
+            font-weight: 600;
+            color: #333;
+            font-size: 1.1em;
+        }
+
+        .reader-id {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 4px;
+        }
+
+        .reader-buttons {
+            display: flex;
+            gap: 8px;
+        }
+
+        .read-button {
+            padding: 8px 16px;
+            font-size: 14px;
+        }
+
+        .output {
+            background: #1e1e1e;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            margin-top: 15px;
+            min-height: 100px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .output.error {
+            color: #ff6b6b;
+        }
+
+        .output.success {
+            color: #51cf66;
+        }
+
+        .empty {
+            color: #888;
+            text-align: center;
+            padding: 20px;
+            font-style: italic;
+        }
+
+        .status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+
+        .status.connected {
+            background: #51cf66;
+            color: white;
+        }
+
+        .status.disconnected {
+            background: #ff6b6b;
+            color: white;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .card-result {
+            background: #e7f5ff;
+            border: 2px solid #339af0;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+
+        .card-result h3 {
+            color: #1971c2;
+            margin-bottom: 10px;
+        }
+
+        .card-data {
+            font-family: 'Courier New', monospace;
+            background: white;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 8px;
+        }
+
+        .card-data-label {
+            font-weight: 600;
+            color: #495057;
+            display: inline-block;
+            width: 80px;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.8s linear infinite;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            background: #51cf66;
+            color: white;
+        }
+
+        .badge.ntag213 { background: #4dabf7; }
+        .badge.ntag215 { background: #51cf66; }
+        .badge.ntag216 { background: #ff6b6b; }
+        .badge.mifare { background: #ffd43b; color: #333; }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .poll-interval {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .poll-interval input {
+            width: 80px;
+            padding: 6px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .poll-interval label {
+            font-size: 14px;
+            color: #666;
+        }
+
+        .write-section {
+            background: #fff3bf;
+            border: 2px solid #ffd43b;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+
+        .write-section h3 {
+            color: #f59f00;
+            margin-bottom: 12px;
+            font-size: 1.1em;
+        }
+
+        .write-form {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .write-form label {
+            font-weight: 600;
+            color: #495057;
+            font-size: 14px;
+        }
+
+        .write-form input,
+        .write-form textarea,
+        .write-form select {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            font-family: inherit;
+        }
+
+        .write-form textarea {
+            font-family: 'Courier New', monospace;
+            min-height: 80px;
+            resize: vertical;
+        }
+
+        .write-button {
+            background: #f59f00;
+            margin-top: 10px;
+        }
+
+        .write-button:hover {
+            background: #e67700;
+        }
+
+        .write-success {
+            background: #d3f9d8;
+            border: 2px solid #51cf66;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+
+        .write-success h3 {
+            color: #2b8a3e;
+            margin-bottom: 10px;
+        }
+
+        .mode-toggle {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+
+        .mode-toggle label {
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 120px;
+            height: 34px;
+            background: #667eea;
+            border-radius: 17px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .toggle-switch.ws-mode {
+            background: #51cf66;
+        }
+
+        .toggle-switch::before {
+            content: 'HTTP';
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: white;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .toggle-switch::after {
+            content: 'WebSocket';
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: rgba(255,255,255,0.5);
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .toggle-switch.ws-mode::before {
+            color: rgba(255,255,255,0.5);
+        }
+
+        .toggle-switch.ws-mode::after {
+            color: white;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            width: 28px;
+            height: 28px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.3s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .toggle-switch.ws-mode .toggle-slider {
+            transform: translateX(86px);
+        }
+
+        .ws-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .ws-status.connected {
+            background: #d3f9d8;
+            color: #2b8a3e;
+        }
+
+        .ws-status.disconnected {
+            background: #ffe0e0;
+            color: #c92a2a;
+        }
+
+        .ws-status.connecting {
+            background: #fff3bf;
+            color: #e67700;
+        }
+
+        .ws-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        .ws-status.connecting .ws-dot {
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .action-button {
+            padding: 8px 16px;
+            font-size: 13px;
+            background: #868e96;
+        }
+
+        .action-button:hover {
+            background: #495057;
+        }
+
+        .action-button.danger {
+            background: #ff6b6b;
+        }
+
+        .action-button.danger:hover {
+            background: #fa5252;
+        }
+
+        .action-button.warning {
+            background: #ffd43b;
+            color: #333;
+        }
+
+        .action-button.warning:hover {
+            background: #fcc419;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔖 NFC Agent Test Interface</h1>
+
+        <div class="card">
+            <h2>
+                API Status
+                <span id="apiStatus" class="status disconnected">Disconnected</span>
+            </h2>
+            <div class="mode-toggle">
+                <label>Connection Mode:</label>
+                <div class="toggle-switch" id="modeToggle" onclick="toggleMode()">
+                    <div class="toggle-slider"></div>
+                </div>
+                <div id="wsStatus" class="ws-status disconnected" style="display: none;">
+                    <span class="ws-dot"></span>
+                    <span id="wsStatusText">Disconnected</span>
+                </div>
+            </div>
+            <div class="controls">
+                <button onclick="checkConnection()">Check Connection</button>
+                <button onclick="listReaders()">List Readers</button>
+                <div class="poll-interval">
+                    <label>Poll Interval:</label>
+                    <input type="number" id="pollInterval" value="500" min="100" step="100">
+                    <label>ms</label>
+                </div>
+            </div>
+            <div id="output" class="output">Ready. Click "Check Connection" to start.</div>
+        </div>
+
+        <div class="card">
+            <h2>Available Readers</h2>
+            <div id="readerList" class="reader-list">
+                <div class="empty">No readers loaded. Click "List Readers" above.</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Card Reading Results</h2>
+            <div id="cardResults">
+                <div class="empty">No card data yet. Click "Start Auto-Read" on a reader above.</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Write Data to Card</h2>
+            <div class="write-section">
+                <h3>✍️ Write Configuration</h3>
+                <div class="write-form">
+                    <label for="writeReaderSelect">Select Reader:</label>
+                    <select id="writeReaderSelect">
+                        <option value="">-- Select a reader --</option>
+                    </select>
+
+                    <label for="writeURL">URL (optional - written as first record):</label>
+                    <input type="text" id="writeURL" placeholder="https://example.com/spool/123">
+
+                    <label for="writeDataType">Data Type:</label>
+                    <select id="writeDataType">
+                        <option value="text">Text</option>
+                        <option value="json">JSON</option>
+                        <option value="url">URL only</option>
+                        <option value="binary">Binary (base64)</option>
+                    </select>
+
+                    <label for="writeData">Data to Write:</label>
+                    <textarea id="writeData" placeholder="Enter data here... (leave empty if writing URL only)"></textarea>
+
+                    <button class="write-button" onclick="writeCard()">Write to Card</button>
+                </div>
+            </div>
+            <div id="writeResults"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://127.0.0.1:32145';
+        const WS_URL = 'ws://127.0.0.1:32145/v1/ws';
+        let readers = [];
+        let pollingIntervals = {}; // Track polling intervals per reader (HTTP mode)
+        let lastCardUIDs = {}; // Track last seen UIDs to detect changes
+        let useWebSocket = false;
+        let ws = null;
+        let wsSubscriptions = {}; // Track WebSocket subscriptions per reader
+        let pendingRequests = {}; // Track pending WebSocket requests
+        let requestId = 0;
+
+        function log(message, type = 'info') {
+            const output = document.getElementById('output');
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = type === 'error' ? '❌' : type === 'success' ? '✅' : 'ℹ️';
+            output.textContent = `[${timestamp}] ${prefix} ${message}\n${output.textContent}`;
+            output.className = `output ${type}`;
+        }
+
+        function updateStatus(connected) {
+            const status = document.getElementById('apiStatus');
+            status.textContent = connected ? 'Connected' : 'Disconnected';
+            status.className = `status ${connected ? 'connected' : 'disconnected'}`;
+        }
+
+        function updateWsStatus(state) {
+            const wsStatus = document.getElementById('wsStatus');
+            const wsStatusText = document.getElementById('wsStatusText');
+            wsStatus.className = `ws-status ${state}`;
+            wsStatusText.textContent = state.charAt(0).toUpperCase() + state.slice(1);
+        }
+
+        function toggleMode() {
+            const toggle = document.getElementById('modeToggle');
+            const wsStatus = document.getElementById('wsStatus');
+
+            useWebSocket = !useWebSocket;
+            toggle.classList.toggle('ws-mode', useWebSocket);
+            wsStatus.style.display = useWebSocket ? 'inline-flex' : 'none';
+
+            // Stop all HTTP polling when switching to WS
+            if (useWebSocket) {
+                Object.keys(pollingIntervals).forEach(idx => {
+                    clearInterval(pollingIntervals[idx]);
+                    delete pollingIntervals[idx];
+                    const btn = document.getElementById(`btn-auto-${idx}`);
+                    if (btn) {
+                        btn.textContent = 'Start Auto-Read';
+                        btn.classList.remove('active');
+                    }
+                    const item = document.getElementById(`reader-item-${idx}`);
+                    if (item) item.classList.remove('polling');
+                });
+                connectWebSocket();
+            } else {
+                // Disconnect WebSocket when switching to HTTP
+                if (ws) {
+                    ws.close();
+                    ws = null;
+                }
+                Object.keys(wsSubscriptions).forEach(idx => {
+                    delete wsSubscriptions[idx];
+                    const btn = document.getElementById(`btn-auto-${idx}`);
+                    if (btn) {
+                        btn.textContent = 'Start Auto-Read';
+                        btn.classList.remove('active');
+                    }
+                    const item = document.getElementById(`reader-item-${idx}`);
+                    if (item) item.classList.remove('polling');
+                });
+            }
+
+            log(`Switched to ${useWebSocket ? 'WebSocket' : 'HTTP'} mode`);
+        }
+
+        function connectWebSocket() {
+            if (ws && ws.readyState === WebSocket.OPEN) return;
+
+            updateWsStatus('connecting');
+            log('Connecting to WebSocket...');
+
+            ws = new WebSocket(WS_URL);
+
+            ws.onopen = () => {
+                updateWsStatus('connected');
+                log('WebSocket connected!', 'success');
+                updateStatus(true);
+                // Re-fetch readers via WebSocket
+                wsSend('list_readers');
+            };
+
+            ws.onclose = () => {
+                updateWsStatus('disconnected');
+                log('WebSocket disconnected', 'error');
+                ws = null;
+                // Clear subscriptions
+                Object.keys(wsSubscriptions).forEach(idx => {
+                    delete wsSubscriptions[idx];
+                });
+            };
+
+            ws.onerror = (error) => {
+                updateWsStatus('disconnected');
+                log('WebSocket error', 'error');
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    handleWsMessage(msg);
+                } catch (e) {
+                    log(`Failed to parse WS message: ${e.message}`, 'error');
+                }
+            };
+        }
+
+        function wsSend(type, payload = {}, callback = null) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                log('WebSocket not connected', 'error');
+                return null;
+            }
+
+            const id = `req-${++requestId}`;
+            // payload should be sent as nested object, not stringified
+            const msg = { type, id, payload: payload };
+
+            if (callback) {
+                pendingRequests[id] = callback;
+            }
+
+            ws.send(JSON.stringify(msg));
+            return id;
+        }
+
+        function handleWsMessage(msg) {
+            // Handle responses to pending requests
+            if (msg.id && pendingRequests[msg.id]) {
+                pendingRequests[msg.id](msg);
+                delete pendingRequests[msg.id];
+                return;
+            }
+
+            // payload is already parsed (json.RawMessage on server side)
+            const payload = msg.payload;
+
+            // Handle events
+            switch (msg.type) {
+                case 'readers':
+                    readers = payload;
+                    log(`Found ${readers.length} reader(s) via WebSocket`, 'success');
+                    displayReaders(readers);
+                    break;
+
+                case 'card':
+                    log(`Card read via WebSocket: ${payload.uid}`, 'success');
+                    break;
+
+                case 'card_detected':
+                    log(`Card detected on ${payload.readerName}: ${payload.card.uid} (${payload.card.type || 'Unknown'})`, 'success');
+                    displayCardData(payload.card, readers[payload.readerIndex], payload.readerIndex, true);
+                    lastCardUIDs[payload.readerIndex] = payload.card.uid;
+                    break;
+
+                case 'card_removed':
+                    log(`Card removed from ${payload.readerName}`, 'info');
+                    delete lastCardUIDs[payload.readerIndex];
+                    clearCardDisplay();
+                    break;
+
+                case 'subscribed':
+                    log(`Subscribed to reader ${payload.readerIndex} (${payload.intervalMs}ms)`, 'success');
+                    break;
+
+                case 'unsubscribed':
+                    log(`Unsubscribed from reader ${payload.readerIndex}`, 'info');
+                    break;
+
+                case 'write_success':
+                case 'erase_success':
+                case 'lock_success':
+                    log(payload.success, 'success');
+                    break;
+
+                case 'error':
+                    log(`WebSocket error: ${msg.error}`, 'error');
+                    break;
+
+                default:
+                    // Handle other message types
+                    if (payload) {
+                        console.log('WS message:', msg.type, payload);
+                    }
+            }
+        }
+
+        async function checkConnection() {
+            if (useWebSocket) {
+                if (!ws || ws.readyState !== WebSocket.OPEN) {
+                    connectWebSocket();
+                } else {
+                    wsSend('health', {}, (msg) => {
+                        if (msg.error) {
+                            log(`Health check failed: ${msg.error}`, 'error');
+                        } else {
+                            const data = msg.payload;
+                            log(`Health: ${data.status}, ${data.readerCount} reader(s)`, 'success');
+                        }
+                    });
+                }
+                return;
+            }
+
+            log('Checking API connection...');
+            try {
+                const response = await fetch(`${API_BASE}/v1/readers`);
+                if (response.ok) {
+                    log('API connection successful!', 'success');
+                    updateStatus(true);
+                    await listReaders();
+                } else {
+                    log(`API returned status ${response.status}`, 'error');
+                    updateStatus(false);
+                }
+            } catch (error) {
+                log(`Connection failed: ${error.message}`, 'error');
+                updateStatus(false);
+            }
+        }
+
+        async function listReaders() {
+            if (useWebSocket) {
+                wsSend('list_readers');
+                return;
+            }
+
+            log('Fetching reader list...');
+            try {
+                const response = await fetch(`${API_BASE}/v1/readers`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                readers = await response.json();
+                log(`Found ${readers.length} reader(s)`, 'success');
+                displayReaders(readers);
+                updateStatus(true);
+            } catch (error) {
+                log(`Failed to list readers: ${error.message}`, 'error');
+                updateStatus(false);
+                document.getElementById('readerList').innerHTML =
+                    '<div class="empty">Failed to load readers. Is nfc-agent running?</div>';
+            }
+        }
+
+        function displayReaders(readers) {
+            const container = document.getElementById('readerList');
+
+            if (readers.length === 0) {
+                container.innerHTML = '<div class="empty">No NFC readers found.</div>';
+                return;
+            }
+
+            container.innerHTML = readers.map((reader, index) => `
+                <div class="reader-item" id="reader-item-${index}">
+                    <div class="reader-info">
+                        <div class="reader-name">${escapeHtml(reader.name)}</div>
+                        <div class="reader-id">ID: ${escapeHtml(reader.id)} • Type: ${escapeHtml(reader.type)}</div>
+                    </div>
+                    <div class="reader-buttons">
+                        <button class="read-button" onclick="readCard(${index})" id="btn-read-${index}">
+                            Read Once
+                        </button>
+                        <button class="read-button" onclick="toggleAutoRead(${index})" id="btn-auto-${index}">
+                            Start Auto-Read
+                        </button>
+                    </div>
+                    <div class="action-buttons">
+                        <button class="action-button" onclick="eraseCard(${index})">Erase</button>
+                    </div>
+                </div>
+            `).join('');
+
+            // Populate write reader dropdown
+            const writeSelect = document.getElementById('writeReaderSelect');
+            writeSelect.innerHTML = '<option value="">-- Select a reader --</option>' +
+                readers.map((reader, index) =>
+                    `<option value="${index}">${escapeHtml(reader.name)}</option>`
+                ).join('');
+        }
+
+        async function readCard(readerIndex, silent = false) {
+            const reader = readers[readerIndex];
+
+            if (useWebSocket) {
+                wsSend('read_card', { readerIndex }, (msg) => {
+                    if (msg.error) {
+                        if (!silent) log(`Failed to read card: ${msg.error}`, 'error');
+                    } else {
+                        const data = msg.payload;
+                        if (!silent) log(`Card read: ${data.uid} (${data.type || 'Unknown'})`, 'success');
+                        displayCardData(data, reader, readerIndex, true);
+                        lastCardUIDs[readerIndex] = data.uid;
+                    }
+                });
+                return;
+            }
+
+            if (!silent) {
+                const button = document.getElementById(`btn-read-${readerIndex}`);
+                const originalText = button.textContent;
+                button.disabled = true;
+                button.innerHTML = 'Reading<span class="loading"></span>';
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/v1/readers/${readerIndex}/card`);
+                const data = await response.json();
+
+                if (!response.ok || data.error) {
+                    throw new Error(data.error || `HTTP ${response.status}`);
+                }
+
+                if (!silent) {
+                    log(`Card read successful! UID: ${data.uid} (${data.type || 'Unknown'})`, 'success');
+                }
+
+                // Check if this is a new card
+                const isNewCard = lastCardUIDs[readerIndex] !== data.uid;
+                if (isNewCard) {
+                    displayCardData(data, reader, readerIndex, true); // true = update form fields
+                    lastCardUIDs[readerIndex] = data.uid;
+                    if (silent) {
+                        log(`New card detected on ${reader.name}: ${data.uid} (${data.type || 'Unknown'})`, 'success');
+                    }
+                } else {
+                    // Same card - update display but don't overwrite form fields
+                    displayCardData(data, reader, readerIndex, false);
+                }
+            } catch (error) {
+                if (!silent) {
+                    log(`Failed to read card: ${error.message}`, 'error');
+                }
+                // Clear last UID and display if card is removed
+                if (lastCardUIDs[readerIndex]) {
+                    delete lastCardUIDs[readerIndex];
+                    clearCardDisplay();
+                    if (silent) {
+                        log(`Card removed from ${reader.name}`, 'info');
+                    }
+                }
+            } finally {
+                if (!silent) {
+                    const button = document.getElementById(`btn-read-${readerIndex}`);
+                    button.disabled = false;
+                    button.textContent = 'Read Once';
+                }
+            }
+        }
+
+        function toggleAutoRead(readerIndex) {
+            const button = document.getElementById(`btn-auto-${readerIndex}`);
+            const readerItem = document.getElementById(`reader-item-${readerIndex}`);
+
+            if (useWebSocket) {
+                // WebSocket subscription mode
+                if (wsSubscriptions[readerIndex]) {
+                    // Unsubscribe
+                    wsSend('unsubscribe', { readerIndex });
+                    delete wsSubscriptions[readerIndex];
+                    delete lastCardUIDs[readerIndex];
+                    button.textContent = 'Start Auto-Read';
+                    button.classList.remove('active');
+                    readerItem.classList.remove('polling');
+                    log(`Stopped auto-read on ${readers[readerIndex].name}`);
+                } else {
+                    // Subscribe
+                    const interval = parseInt(document.getElementById('pollInterval').value) || 500;
+                    wsSend('subscribe', { readerIndex, intervalMs: interval });
+                    wsSubscriptions[readerIndex] = true;
+                    button.textContent = 'Stop Auto-Read';
+                    button.classList.add('active');
+                    readerItem.classList.add('polling');
+                    log(`Started auto-read on ${readers[readerIndex].name} via WebSocket (${interval}ms)`);
+                }
+                return;
+            }
+
+            // HTTP polling mode
+            if (pollingIntervals[readerIndex]) {
+                // Stop polling
+                clearInterval(pollingIntervals[readerIndex]);
+                delete pollingIntervals[readerIndex];
+                delete lastCardUIDs[readerIndex];
+                button.textContent = 'Start Auto-Read';
+                button.classList.remove('active');
+                readerItem.classList.remove('polling');
+                log(`Stopped auto-read on ${readers[readerIndex].name}`);
+            } else {
+                // Start polling
+                const interval = parseInt(document.getElementById('pollInterval').value) || 500;
+                pollingIntervals[readerIndex] = setInterval(() => {
+                    readCard(readerIndex, true);
+                }, interval);
+                button.textContent = 'Stop Auto-Read';
+                button.classList.add('active');
+                readerItem.classList.add('polling');
+                log(`Started auto-read on ${readers[readerIndex].name} (${interval}ms interval)`);
+
+                // Do initial read
+                readCard(readerIndex, true);
+            }
+        }
+
+        async function eraseCard(readerIndex) {
+            if (!confirm('Are you sure you want to erase all data from this card?')) {
+                return;
+            }
+
+            const reader = readers[readerIndex];
+            log(`Erasing card on ${reader.name}...`);
+
+            if (useWebSocket) {
+                wsSend('erase_card', { readerIndex }, (msg) => {
+                    if (msg.error) {
+                        log(`Erase failed: ${msg.error}`, 'error');
+                    } else {
+                        log(`Card erased successfully on ${reader.name}`, 'success');
+                    }
+                });
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/v1/readers/${readerIndex}/erase`, {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                if (!response.ok || result.error) {
+                    throw new Error(result.error || `HTTP ${response.status}`);
+                }
+                log(`Card erased successfully on ${reader.name}`, 'success');
+            } catch (error) {
+                log(`Erase failed: ${error.message}`, 'error');
+            }
+        }
+
+        function clearCardDisplay() {
+            const container = document.getElementById('cardResults');
+            container.innerHTML = '<div class="empty">No card detected. Waiting for card...</div>';
+        }
+
+        function displayCardData(card, reader, readerIndex, updateFormFields = true) {
+            const container = document.getElementById('cardResults');
+            const timestamp = new Date().toLocaleTimeString();
+
+            const typeBadge = getTypeBadge(card.type);
+
+            // Auto-select this reader in the write form (only on new card)
+            if (updateFormFields) {
+                const writeSelect = document.getElementById('writeReaderSelect');
+                if (writeSelect) {
+                    writeSelect.value = readerIndex;
+                }
+            }
+
+            let dataSection = '';
+
+            // Show URL if present (separate from data)
+            if (card.url) {
+                dataSection += `
+                    <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd;">
+                        <div style="font-weight: 600; color: #495057; margin-bottom: 5px;">
+                            🔗 URL:
+                        </div>
+                        <a href="${escapeHtml(card.url)}" target="_blank" style="color: #1971c2; word-break: break-all;">${escapeHtml(card.url)}</a>
+                    </div>
+                `;
+
+                // Pre-fill URL field
+                if (updateFormFields) {
+                    document.getElementById('writeURL').value = card.url;
+                }
+            }
+
+            // Show data if present (and different from URL)
+            if (card.data && card.data !== card.url) {
+                let displayData = escapeHtml(card.data);
+
+                // Format JSON nicely
+                if (card.dataType === 'json') {
+                    try {
+                        const jsonObj = JSON.parse(card.data);
+                        displayData = JSON.stringify(jsonObj, null, 2);
+                    } catch (e) {
+                        // Keep as-is if parsing fails
+                    }
+                }
+
+                // Pre-fill write form with the current data (only on new card detection)
+                if (updateFormFields) {
+                    document.getElementById('writeData').value = card.data;
+                    document.getElementById('writeDataType').value = card.dataType || 'text';
+                }
+
+                dataSection += `
+                    <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd;">
+                        <div style="font-weight: 600; color: #495057; margin-bottom: 5px;">
+                            📄 Stored Data (${card.dataType || 'unknown'}):
+                        </div>
+                        <pre style="background: #f8f9fa; padding: 10px; border-radius: 4px; overflow-x: auto; max-height: 200px; font-size: 12px; margin: 0;">${displayData}</pre>
+                    </div>
+                `;
+            } else if (card.data && card.dataType === 'url' && updateFormFields) {
+                // URL-only card (no separate data)
+                document.getElementById('writeURL').value = card.data;
+                document.getElementById('writeData').value = '';
+                document.getElementById('writeDataType').value = 'text';
+            }
+
+            container.innerHTML = `
+                <div class="card-result">
+                    <h3>✅ Card Detected on ${escapeHtml(reader.name)}</h3>
+                    <div class="card-data">
+                        <div><span class="card-data-label">UID:</span> ${escapeHtml(card.uid)}</div>
+                        ${card.type ? `<div><span class="card-data-label">Type:</span> ${typeBadge} ${escapeHtml(card.type)}</div>` : ''}
+                        ${card.size ? `<div><span class="card-data-label">Size:</span> ${card.size} bytes</div>` : ''}
+                        ${card.writable !== undefined ? `<div><span class="card-data-label">Writable:</span> ${card.writable ? '✅ Yes' : '❌ No'}</div>` : ''}
+                        ${card.atr ? `<div><span class="card-data-label">ATR:</span> ${escapeHtml(card.atr)}</div>` : ''}
+                        <div><span class="card-data-label">Time:</span> ${timestamp}</div>
+                        ${dataSection}
+                    </div>
+                </div>
+            `;
+        }
+
+        function getTypeBadge(type) {
+            if (!type) return '';
+
+            const typeLower = type.toLowerCase();
+            let badgeClass = 'badge';
+
+            if (typeLower.includes('ntag213')) badgeClass += ' ntag213';
+            else if (typeLower.includes('ntag215')) badgeClass += ' ntag215';
+            else if (typeLower.includes('ntag216')) badgeClass += ' ntag216';
+            else if (typeLower.includes('mifare')) badgeClass += ' mifare';
+
+            return `<span class="${badgeClass}">${escapeHtml(type)}</span>`;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        async function writeCard() {
+            const readerIndex = document.getElementById('writeReaderSelect').value;
+            const dataType = document.getElementById('writeDataType').value;
+            const data = document.getElementById('writeData').value;
+            const url = document.getElementById('writeURL').value.trim();
+            const resultsDiv = document.getElementById('writeResults');
+
+            // Validation
+            if (readerIndex === '') {
+                log('Please select a reader', 'error');
+                return;
+            }
+
+            // For URL-only mode, URL is required
+            if (dataType === 'url' && !data.trim() && !url) {
+                log('Please enter a URL to write', 'error');
+                return;
+            }
+
+            // For other modes, either data or URL must be provided
+            if (!data.trim() && !url) {
+                log('Please enter data or URL to write', 'error');
+                return;
+            }
+
+            // Validate JSON if type is JSON
+            if (dataType === 'json' && data.trim()) {
+                try {
+                    JSON.parse(data);
+                } catch (e) {
+                    log('Invalid JSON data: ' + e.message, 'error');
+                    return;
+                }
+            }
+
+            // Validate base64 if type is binary
+            if (dataType === 'binary' && data.trim()) {
+                try {
+                    atob(data);
+                } catch (e) {
+                    log('Invalid base64 data: ' + e.message, 'error');
+                    return;
+                }
+            }
+
+            const reader = readers[parseInt(readerIndex)];
+            const writeDesc = url && data.trim() ? `URL + ${dataType}` : (url ? 'URL' : dataType);
+            log(`Writing ${writeDesc} data to ${reader.name}...`);
+
+            // Build payload
+            const payload = {
+                readerIndex: parseInt(readerIndex),
+                dataType: dataType
+            };
+
+            // For URL-only mode with data in the data field, treat as URL
+            if (dataType === 'url') {
+                payload.data = data.trim() || url;
+            } else {
+                payload.data = data;
+                if (url) {
+                    payload.url = url;
+                }
+            }
+
+            if (useWebSocket) {
+                wsSend('write_card', payload, (msg) => {
+                    if (msg.error) {
+                        log(`Write failed: ${msg.error}`, 'error');
+                        resultsDiv.innerHTML = `
+                            <div class="card-result" style="background: #ffe0e0; border-color: #ff6b6b;">
+                                <h3 style="color: #c92a2a;">❌ Write Failed</h3>
+                                <div class="card-data">
+                                    <div><span class="card-data-label">Error:</span> ${escapeHtml(msg.error)}</div>
+                                    <div><span class="card-data-label">Time:</span> ${new Date().toLocaleTimeString()}</div>
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        log(`Write successful! Data written to ${reader.name}`, 'success');
+                        resultsDiv.innerHTML = `
+                            <div class="write-success">
+                                <h3>✅ Write Successful!</h3>
+                                <div class="card-data">
+                                    <div><span class="card-data-label">Reader:</span> ${escapeHtml(reader.name)}</div>
+                                    ${url ? `<div><span class="card-data-label">URL:</span> ${escapeHtml(url)}</div>` : ''}
+                                    <div><span class="card-data-label">Data Type:</span> ${escapeHtml(dataType)}</div>
+                                    ${data.trim() ? `<div><span class="card-data-label">Data Size:</span> ${data.length} bytes</div>` : ''}
+                                    <div><span class="card-data-label">Time:</span> ${new Date().toLocaleTimeString()}</div>
+                                </div>
+                            </div>
+                        `;
+                        document.getElementById('writeData').value = '';
+                        document.getElementById('writeURL').value = '';
+                    }
+                });
+                return;
+            }
+
+            try {
+                // Build request body for HTTP
+                const requestBody = {
+                    dataType: dataType
+                };
+
+                if (dataType === 'url') {
+                    requestBody.data = data.trim() || url;
+                } else {
+                    requestBody.data = data;
+                    if (url) {
+                        requestBody.url = url;
+                    }
+                }
+
+                const response = await fetch(`${API_BASE}/v1/readers/${readerIndex}/card`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+
+                const result = await response.json();
+
+                if (!response.ok || result.error) {
+                    throw new Error(result.error || `HTTP ${response.status}`);
+                }
+
+                log(`Write successful! Data written to ${reader.name}`, 'success');
+
+                // Show success message
+                resultsDiv.innerHTML = `
+                    <div class="write-success">
+                        <h3>✅ Write Successful!</h3>
+                        <div class="card-data">
+                            <div><span class="card-data-label">Reader:</span> ${escapeHtml(reader.name)}</div>
+                            ${url ? `<div><span class="card-data-label">URL:</span> ${escapeHtml(url)}</div>` : ''}
+                            <div><span class="card-data-label">Data Type:</span> ${escapeHtml(dataType)}</div>
+                            ${data.trim() ? `<div><span class="card-data-label">Data Size:</span> ${data.length} bytes</div>` : ''}
+                            <div><span class="card-data-label">Time:</span> ${new Date().toLocaleTimeString()}</div>
+                        </div>
+                    </div>
+                `;
+
+                // Clear the form
+                document.getElementById('writeData').value = '';
+                document.getElementById('writeURL').value = '';
+
+            } catch (error) {
+                log(`Write failed: ${error.message}`, 'error');
+                resultsDiv.innerHTML = `
+                    <div class="card-result" style="background: #ffe0e0; border-color: #ff6b6b;">
+                        <h3 style="color: #c92a2a;">❌ Write Failed</h3>
+                        <div class="card-data">
+                            <div><span class="card-data-label">Error:</span> ${escapeHtml(error.message)}</div>
+                            <div><span class="card-data-label">Time:</span> ${new Date().toLocaleTimeString()}</div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        // Auto-check connection on load
+        window.addEventListener('load', () => {
+            checkConnection();
+        });
+
+        // Clean up on page unload
+        window.addEventListener('beforeunload', () => {
+            // Stop HTTP polling
+            Object.values(pollingIntervals).forEach(clearInterval);
+            // Close WebSocket
+            if (ws) {
+                ws.close();
+            }
+        });
+    </script>
+</body>
+</html>
