@@ -189,7 +189,9 @@ func (c *WSClient) writePump() {
 			if err != nil {
 				return
 			}
-			w.Write(message)
+			if _, err := w.Write(message); err != nil {
+				return
+			}
 
 			if err := w.Close(); err != nil {
 				return

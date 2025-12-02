@@ -877,13 +877,12 @@ func LockCard(readerName string) error {
 	writeCmd = []byte{0xFF, 0xD6, 0x00, byte(dynamicLockPage), 0x04}
 	writeCmd = append(writeCmd, dynamicLockData...)
 
-	rsp, err = card.Transmit(writeCmd)
+	_, err = card.Transmit(writeCmd)
 	if err != nil {
 		// Dynamic locks may fail on some cards, but static locks were set
 		logging.Warn(logging.CatCard, "Failed to set dynamic lock bytes", map[string]any{
 			"error": err.Error(),
 		})
-		return nil
 	}
 
 	return nil
