@@ -331,6 +331,37 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # Publish to GitHub Packages (npm)
+  npm-publish:
+    name: Publish npm Package
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref, '-')
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@simplyprint'
+
+      - name: Update package version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Publish to GitHub Packages
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   # Update Homebrew tap (disabled until tap repo is created)
   # To enable: create SimplyPrint/homebrew-tap repo and add HOMEBREW_TAP_TOKEN secret
   # homebrew:
