@@ -312,8 +312,13 @@ jobs:
       - name: Prepare release files
         run: |
           mkdir -p release
-          # Copy specific files (not raw binaries)
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Copy installer packages
           find artifacts -type f \( -name "*.dmg" -o -name "*-setup.exe" -o -name "*.deb" -o -name "*.rpm" \) -exec cp {} release/ \;
+          # Also include standalone Windows exe with friendly name
+          if [ -f "artifacts/nfc-agent-windows-x64/nfc-agent.exe" ]; then
+            cp "artifacts/nfc-agent-windows-x64/nfc-agent.exe" "release/NFC-Agent-${VERSION}-windows.exe"
+          fi
           ls -la release/
 
       - name: Create Release
