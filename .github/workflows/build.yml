@@ -2,10 +2,7 @@ name: Build and Release
 
 on:
   push:
-    branches: [main]
-    tags: ['v*']
-  pull_request:
-    branches: [main]
+    tags: ['v*']  # Only run on version tags for releases
 
 permissions:
   contents: write
@@ -35,7 +32,7 @@ jobs:
           fail_ci_if_error: false
 
   build:
-    name: Build (${{ matrix.os }})
+    name: Build (${{ matrix.name }})
     needs: test
     strategy:
       fail-fast: false
@@ -44,15 +41,19 @@ jobs:
           - os: ubuntu-latest
             goos: linux
             goarch: amd64
-          - os: macos-13
+            name: linux-x64
+          - os: macos-15-intel
             goos: darwin
             goarch: amd64
+            name: macos-intel
           - os: macos-latest
             goos: darwin
             goarch: arm64
+            name: macos-apple-silicon
           - os: windows-latest
             goos: windows
             goarch: amd64
+            name: windows-x64
 
     runs-on: ${{ matrix.os }}
 
@@ -69,6 +70,34 @@ jobs:
         if: matrix.goos == 'linux'
         run: sudo apt-get update && sudo apt-get install -y libpcsclite-dev
 
+      # Generate Windows resource file (icon + version info)
+      - name: Generate Windows resources
+        if: matrix.goos == 'windows'
+        shell: bash
+        run: |
+          go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest
+          VERSION="${GITHUB_REF_NAME:-v0.0.0}"
+          VERSION="${VERSION#v}"  # Remove 'v' prefix
+          IFS='.' read -r MAJOR MINOR PATCH <<< "${VERSION}"
+          MAJOR="${MAJOR:-0}"; MINOR="${MINOR:-0}"; PATCH="${PATCH:-0}"
+          cat > cmd/nfc-agent/versioninfo.json << EOF
+          {
+            "FixedFileInfo": {
+              "FileVersion": {"Major": ${MAJOR}, "Minor": ${MINOR}, "Patch": ${PATCH}, "Build": 0},
+              "ProductVersion": {"Major": ${MAJOR}, "Minor": ${MINOR}, "Patch": ${PATCH}, "Build": 0}
+            },
+            "StringFileInfo": {
+              "ProductName": "NFC Agent",
+              "FileDescription": "NFC card reader service for SimplyPrint",
+              "CompanyName": "SimplyPrint",
+              "LegalCopyright": "Copyright © SimplyPrint",
+              "ProductVersion": "${VERSION}"
+            },
+            "IconPath": "../../build/windows/icon.ico"
+          }
+          EOF
+          cd cmd/nfc-agent && goversioninfo -64
+
       - name: Build
         shell: bash
         env:
@@ -80,12 +109,18 @@ jobs:
           BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           GIT_COMMIT="${GITHUB_SHA:-unknown}"
 
-          go build -ldflags="-s -w -X 'github.com/SimplyPrint/nfc-agent/internal/api.Version=${VERSION}' -X 'github.com/SimplyPrint/nfc-agent/internal/api.BuildTime=${BUILD_TIME}' -X 'github.com/SimplyPrint/nfc-agent/internal/api.GitCommit=${GIT_COMMIT}'" -o dist/nfc-agent${{ matrix.goos == 'windows' && '.exe' || '' }} ./cmd/nfc-agent
+          # Add -H windowsgui on Windows to hide console window
+          EXTRA_LDFLAGS=""
+          if [ "$GOOS" = "windows" ]; then
+            EXTRA_LDFLAGS="-H windowsgui"
+          fi
+
+          go build -ldflags="-s -w ${EXTRA_LDFLAGS} -X 'github.com/SimplyPrint/nfc-agent/internal/api.Version=${VERSION}' -X 'github.com/SimplyPrint/nfc-agent/internal/api.BuildTime=${BUILD_TIME}' -X 'github.com/SimplyPrint/nfc-agent/internal/api.GitCommit=${GIT_COMMIT}'" -o dist/nfc-agent${{ matrix.goos == 'windows' && '.exe' || '' }} ./cmd/nfc-agent
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nfc-agent-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: nfc-agent-${{ matrix.name }}
           path: dist/
 
   # macOS code signing and DMG creation
@@ -98,16 +133,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download macOS ARM64 artifact
+      - name: Download macOS Apple Silicon artifact
         uses: actions/download-artifact@v4
         with:
-          name: nfc-agent-darwin-arm64
+          name: nfc-agent-macos-apple-silicon
           path: dist/arm64/
 
-      - name: Download macOS AMD64 artifact
+      - name: Download macOS Intel artifact
         uses: actions/download-artifact@v4
         with:
-          name: nfc-agent-darwin-amd64
+          name: nfc-agent-macos-intel
           path: dist/amd64/
 
       - name: Create universal binary
@@ -182,7 +217,7 @@ jobs:
       - name: Download Windows artifact
         uses: actions/download-artifact@v4
         with:
-          name: nfc-agent-windows-amd64
+          name: nfc-agent-windows-x64
           path: dist/nfc-agent_windows_amd64_v1/
 
       - name: Install Inno Setup
