@@ -331,9 +331,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # Publish to GitHub Packages (npm)
+  # Publish SDK to GitHub Packages (npm)
   npm-publish:
-    name: Publish npm Package
+    name: Publish SDK
     needs: release
     if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref, '-')
     runs-on: ubuntu-latest
@@ -352,12 +352,20 @@ jobs:
           registry-url: 'https://npm.pkg.github.com'
           scope: '@simplyprint'
 
+      - name: Install dependencies and build
+        working-directory: sdk
+        run: |
+          npm ci
+          npm run build
+
       - name: Update package version
+        working-directory: sdk
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       - name: Publish to GitHub Packages
+        working-directory: sdk
         run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

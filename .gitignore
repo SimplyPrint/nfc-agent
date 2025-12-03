@@ -3,9 +3,10 @@ dist/
 /nfc-agent
 /nfc-agent.exe
 
-# npm bin (downloaded binaries)
-bin/nfc-agent
-bin/nfc-agent.exe
+# npm (root level, sdk has its own)
+/node_modules/
+/package.json
+/package-lock.json
 
 # IDE
 .idea/

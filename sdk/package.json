@@ -50,6 +50,9 @@
     "url": "https://github.com/SimplyPrint/nfc-agent/issues"
   },
   "homepage": "https://github.com/SimplyPrint/nfc-agent#readme",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "devDependencies": {
     "@vitest/coverage-v8": "^2.1.8",
     "tsup": "^8.3.5",
