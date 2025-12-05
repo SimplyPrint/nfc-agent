@@ -44,6 +44,18 @@
       ]
     },
     {
+      "name": "ACR1552U",
+      "manufacturer": "ACS",
+      "description": "USB-C NFC reader with extended tag support",
+      "supportedTags": ["NTAG", "MIFARE Classic", "MIFARE Ultralight", "MIFARE DESFire", "FeliCa", "ISO 14443 Type A", "ISO 14443 Type B", "ISO 15693"],
+      "capabilities": {
+        "read": true,
+        "write": true,
+        "ndef": true
+      },
+      "limitations": []
+    },
+    {
       "name": "SCM SCR3310",
       "manufacturer": "SCM Microsystems",
       "description": "Compact USB smart card reader with NFC support",

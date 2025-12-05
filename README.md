@@ -28,7 +28,7 @@ NFC Agent works with any **PC/SC compatible** contactless smart card reader. Tes
 
 | Manufacturer | Models |
 |--------------|--------|
-| **ACS** | ACR122U, ACR1252U, ACR1255U-J1 (Bluetooth) |
+| **ACS** | ACR122U, ACR1252U, ACR1255U-J1 (Bluetooth), ACR1552U |
 | **SCM Microsystems** | SCR3310 |
 | **Identiv** | uTrust series |
 | **HID Global** | OMNIKEY series |
