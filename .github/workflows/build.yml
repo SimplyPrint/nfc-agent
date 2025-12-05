@@ -376,18 +376,58 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # Update Homebrew tap (disabled until tap repo is created)
-  # To enable: create SimplyPrint/homebrew-tap repo and add HOMEBREW_TAP_TOKEN secret
-  # homebrew:
-  #   name: Update Homebrew
-  #   needs: release
-  #   if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref, '-')
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Update Homebrew formula
-  #       uses: dawidd6/action-homebrew-bump-formula@v3
-  #       with:
-  #         token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-  #         tap: SimplyPrint/homebrew-tap
-  #         formula: nfc-agent
-  #         tag: ${{ github.ref_name }}
+  # Update Homebrew tap
+  homebrew:
+    name: Update Homebrew
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref, '-')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Update Homebrew Cask
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          VERSION="${VERSION#v}"
+          DMG_URL="https://github.com/SimplyPrint/nfc-agent/releases/download/v${VERSION}/NFC-Agent-${VERSION}-macos.dmg"
+
+          # Download and calculate SHA256
+          SHA256=$(curl -sL "$DMG_URL" | shasum -a 256 | cut -d' ' -f1)
+
+          # Clone tap repo
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/SimplyPrint/homebrew-tap.git" tap
+          cd tap
+
+          # Update Cask file
+          cat > Casks/nfc-agent.rb << EOF
+          cask "nfc-agent" do
+            version "${VERSION}"
+            sha256 "${SHA256}"
+
+            url "https://github.com/SimplyPrint/nfc-agent/releases/download/v#{version}/NFC-Agent-#{version}-macos.dmg"
+            name "NFC Agent"
+            desc "NFC card reader agent for SimplyPrint"
+            homepage "https://github.com/SimplyPrint/nfc-agent"
+
+            livecheck do
+              url :url
+              strategy :github_latest
+            end
+
+            app "NFC Agent.app"
+
+            zap trash: [
+              "~/Library/Application Support/NFC Agent",
+              "~/Library/Preferences/com.simplyprint.nfc-agent.plist",
+              "~/Library/LaunchAgents/com.simplyprint.nfc-agent.plist",
+            ]
+          end
+          EOF
+
+          # Commit and push
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/nfc-agent.rb
+          git commit -m "Update nfc-agent to ${VERSION}"
+          git push
