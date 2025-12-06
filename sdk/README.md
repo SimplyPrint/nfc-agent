@@ -13,20 +13,18 @@ JavaScript/TypeScript SDK for interacting with NFC readers via the [nfc-agent](h
 
 ## Installation
 
+This package is hosted on [GitHub Packages](https://github.com/SimplyPrint/nfc-agent/packages). To install:
+
+1. Create or edit `.npmrc` in your project root:
+
+```
+@simplyprint:registry=https://npm.pkg.github.com
+```
+
+2. Install the package:
+
 ```bash
 npm install @simplyprint/nfc-agent
-```
-
-### CDN (Browser)
-
-```html
-<script src="https://unpkg.com/@simplyprint/nfc-agent"></script>
-```
-
-Or via jsDelivr:
-
-```html
-<script src="https://cdn.jsdelivr.net/npm/@simplyprint/nfc-agent"></script>
 ```
 
 ## Prerequisites
