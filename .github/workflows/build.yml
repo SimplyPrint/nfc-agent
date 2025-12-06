@@ -106,6 +106,7 @@ jobs:
           CGO_ENABLED: 1
         run: |
           VERSION="${GITHUB_REF_NAME:-dev}"
+          VERSION="${VERSION#v}"  # Remove 'v' prefix if present
           BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           GIT_COMMIT="${GITHUB_SHA:-unknown}"
 
