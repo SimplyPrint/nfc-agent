@@ -90,9 +90,15 @@ tar -xzf nfc-agent_*_linux_amd64.tar.gz
 sudo mv nfc-agent /usr/local/bin/
 
 # Install PC/SC daemon
-sudo pacman -S pcsclite  # Arch
+sudo pacman -S pcsclite ccid  # Arch (ccid provides USB reader drivers)
 sudo systemctl enable --now pcscd
+
+# Add your user to the pcscd group for reader access
+sudo usermod -a -G pcscd $USER
+# Log out and back in for group changes to take effect
 ```
+
+> **Note:** Unlike the `.deb` and `.rpm` packages, the tar.gz installation requires manual setup of the PC/SC daemon and user permissions. If you see "No readers found", ensure `pcscd` is running (`systemctl status pcscd`) and that you've logged out/in after adding yourself to the `pcscd` group.
 
 ## Quick Start
 

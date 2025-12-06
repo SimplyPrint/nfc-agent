@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/SimplyPrint/nfc-agent/internal/logging"
 	"github.com/ebfe/scard"
 )
 
@@ -19,14 +20,21 @@ type Reader struct {
 func ListReaders() []Reader {
 	ctx, err := scard.EstablishContext()
 	if err != nil {
-		// If PC/SC is not available, return empty list
+		// Log the error for diagnostics - this usually means pcscd is not running
+		logging.Error(logging.CatReader, "Failed to establish PC/SC context - is pcscd running?", map[string]any{
+			"error": err.Error(),
+			"hint":  "On Linux, ensure pcscd is installed and running: sudo systemctl status pcscd",
+		})
 		return []Reader{}
 	}
 	defer ctx.Release()
 
 	readerNames, err := ctx.ListReaders()
 	if err != nil {
-		// No readers found
+		// This is normal when no readers are connected, log at debug level
+		logging.Debug(logging.CatReader, "No readers found", map[string]any{
+			"error": err.Error(),
+		})
 		return []Reader{}
 	}
 
