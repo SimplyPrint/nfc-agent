@@ -182,23 +182,6 @@ const health = await ws.health();
 console.log('Status:', health.status);
 ```
 
-### Browser (CDN)
-
-```html
-<script src="https://unpkg.com/@simplyprint/nfc-agent"></script>
-<script>
-  const ws = new NFCAgent.WebSocket();
-
-  ws.connect().then(async () => {
-    await ws.subscribe(0);
-
-    ws.on('card_detected', (event) => {
-      console.log('Card:', event.card.uid);
-    });
-  });
-</script>
-```
-
 ---
 
 ## REST API

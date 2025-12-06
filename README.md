@@ -190,19 +190,6 @@ await ws.writeCard(0, {
 });
 ```
 
-### Browser (CDN)
-
-```html
-<script src="https://unpkg.com/@simplyprint/nfc-agent"></script>
-<script>
-  const ws = new NFCAgent.WebSocket();
-  ws.connect().then(() => {
-    ws.subscribe(0);
-    ws.on('card_detected', (e) => console.log('Card:', e.card.uid));
-  });
-</script>
-```
-
 See the full [SDK documentation](sdk/README.md) for more examples.
 
 ## Building from Source
