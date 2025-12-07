@@ -64,6 +64,9 @@ nfpms:
       - src: ./build/linux/nfc-agent.desktop
         dst: /usr/share/applications/nfc-agent.desktop
         type: config
+      - src: ./build/linux/blacklist-nfc-pn533.conf
+        dst: /etc/modprobe.d/blacklist-nfc-pn533.conf
+        type: config
     scripts:
       postinstall: ./build/linux/postinstall.sh
 

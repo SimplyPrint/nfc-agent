@@ -100,38 +100,22 @@ sudo systemctl enable --now pcscd
 
 > **Note:** Unlike the `.deb` and `.rpm` packages, the tar.gz installation requires manual setup of the PC/SC daemon. If you see "No readers found", ensure `pcscd` is running (`systemctl status pcscd`).
 
-**Atomic Linux Distributions (Fedora Silverblue, Kinoite, etc.) with Distrobox:**
+**Kernel Module Fix (tar.gz installations only)**
 
-For immutable/atomic distributions, you can run NFC Agent inside a distrobox container while applying kernel fixes on the host OS:
+The `.deb` and `.rpm` packages automatically install the kernel module blacklist and unload conflicting modules. For tar.gz installations, you need to do this manually:
 
-1. **On the host OS** - Apply the kernel module blacklist (required for ACR122U and similar readers):
-   ```bash
-   # Create blacklist file on the host
-   echo -e "blacklist pn533_usb\nblacklist pn533\nblacklist nfc" | sudo tee /etc/modprobe.d/blacklist-pn533.conf
+```bash
+# Blacklist conflicting kernel modules
+echo -e "blacklist pn533_usb\nblacklist pn533\nblacklist nfc" | sudo tee /etc/modprobe.d/blacklist-nfc-pn533.conf
 
-   # Unload modules if currently loaded
-   sudo modprobe -r pn533_usb pn533 nfc 2>/dev/null || true
+# Unload modules if currently loaded
+sudo modprobe -r pn533_usb pn533 nfc 2>/dev/null || true
 
-   # Restart PC/SC daemon on host
-   sudo systemctl restart pcscd
-   ```
+# Restart PC/SC daemon
+sudo systemctl restart pcscd
+```
 
-2. **Inside distrobox** - Install the package:
-   ```bash
-   # Enter your distrobox container (e.g., Fedora-based)
-   distrobox enter fedora
-
-   # Install the RPM package
-   sudo dnf install ./NFC-Agent-*.rpm
-   ```
-
-3. **Run from distrobox** - Start NFC Agent from within the container:
-   ```bash
-   distrobox enter fedora
-   nfc-agent
-   ```
-
-> **Note:** The kernel module blacklist must be applied on the host OS because the kernel is shared between the host and containers. The pcscd service also runs on the host and is accessible from within distrobox.
+> **Atomic Distributions (Fedora Silverblue, Kinoite, etc.):** You can run NFC Agent inside a distrobox container. Install the `.rpm` package in the container—the blacklist file will be installed to the shared `/etc/modprobe.d/` on the host. Alternatively, apply the kernel module fix manually on the host OS, then run `nfc-agent` from the container.
 
 ## Quick Start
 
@@ -308,28 +292,11 @@ NFC Agent uses the PC/SC (Personal Computer/Smart Card) interface to communicate
    ```
 3. Try unplugging and reconnecting the reader
 
-**Linux: Kernel NFC modules conflict (ACR122U)**
+**Linux: Kernel NFC modules conflict**
 
-The Linux kernel's NFC subsystem (`pn533_usb`) may claim ACR122U readers before pcscd can access them. Check with:
-```bash
-lsmod | grep pn533
-```
+The Linux kernel's NFC subsystem may claim certain readers before pcscd can access them. The `.deb` and `.rpm` packages handle this automatically. For tar.gz installations, check with `lsmod | grep pn533`—if modules are loaded, follow the **Kernel Module Fix** steps in the [Linux installation section](#linux).
 
-If modules are loaded, unload them and blacklist:
-```bash
-# Temporary fix
-sudo modprobe -r pn533_usb pn533 nfc
-sudo systemctl restart pcscd
-
-# Permanent fix - create blacklist file
-echo -e "blacklist pn533_usb\nblacklist pn533\nblacklist nfc" | sudo tee /etc/modprobe.d/blacklist-pn533.conf
-```
-
-**Arch Linux with ACS readers:** Install the `acsccid` driver from AUR:
-```bash
-yay -S acsccid
-sudo systemctl restart pcscd
-```
+**Arch Linux with ACS readers:** Install the `acsccid` driver from AUR (`yay -S acsccid`) and restart pcscd.
 
 ### "Failed to connect to card"
 
