@@ -60,7 +60,7 @@ Download the installer (`.exe`) from [GitHub Releases](https://github.com/Simply
 
 ### Linux
 
-**Debian/Ubuntu:**
+**Debian/Ubuntu/Raspberry Pi OS:**
 
 ```bash
 # Download the .deb package from GitHub Releases, then:
@@ -82,6 +82,8 @@ sudo dnf install pcsc-lite
 sudo systemctl enable --now pcscd
 ```
 
+> **Atomic Distributions (Fedora Silverblue, Kinoite, etc.):** You can run NFC Agent inside a distrobox container. Install the `.rpm` package in the container, apply the kernel module fix on the host OS, then run `nfc-agent` from the container.
+
 **Arch Linux / Other:**
 
 ```bash
@@ -100,9 +102,9 @@ sudo systemctl enable --now pcscd
 
 > **Note:** Unlike the `.deb` and `.rpm` packages, the tar.gz installation requires manual setup of the PC/SC daemon. If you see "No readers found", ensure `pcscd` is running (`systemctl status pcscd`).
 
-**Kernel Module Fix (tar.gz installations only)**
+**Important: Kernel Module Fix (All Distributions)**
 
-The `.deb` and `.rpm` packages automatically install the kernel module blacklist and unload conflicting modules. For tar.gz installations, you need to do this manually:
+The Linux kernel's NFC subsystem may claim certain readers (especially ACR122U) before pcscd can access them. Run the following after installation:
 
 ```bash
 # Blacklist conflicting kernel modules
@@ -114,8 +116,6 @@ sudo modprobe -r pn533_usb pn533 nfc 2>/dev/null || true
 # Restart PC/SC daemon
 sudo systemctl restart pcscd
 ```
-
-> **Atomic Distributions (Fedora Silverblue, Kinoite, etc.):** You can run NFC Agent inside a distrobox container. Install the `.rpm` package in the container—the blacklist file will be installed to the shared `/etc/modprobe.d/` on the host. Alternatively, apply the kernel module fix manually on the host OS, then run `nfc-agent` from the container.
 
 ## Quick Start
 
@@ -294,7 +294,7 @@ NFC Agent uses the PC/SC (Personal Computer/Smart Card) interface to communicate
 
 **Linux: Kernel NFC modules conflict**
 
-The Linux kernel's NFC subsystem may claim certain readers before pcscd can access them. The `.deb` and `.rpm` packages handle this automatically. For tar.gz installations, check with `lsmod | grep pn533`—if modules are loaded, follow the **Kernel Module Fix** steps in the [Linux installation section](#linux).
+The Linux kernel's NFC subsystem may claim certain readers before pcscd can access them. Check with `lsmod | grep pn533`—if modules are loaded, follow the **Kernel Module Fix** steps in the [Linux installation section](#linux).
 
 **Arch Linux with ACS readers:** Install the `acsccid` driver from AUR (`yay -S acsccid`) and restart pcscd.
 
