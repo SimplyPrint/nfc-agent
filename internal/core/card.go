@@ -1,11 +1,14 @@
 package core
 
 import (
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/SimplyPrint/nfc-agent/internal/logging"
+	"github.com/SimplyPrint/nfc-agent/internal/openprinttag"
 	"github.com/ebfe/scard"
 )
 
@@ -317,8 +320,19 @@ func WriteDataWithURL(readerName string, data []byte, dataType string, url strin
 			ndefMessage = createNDEFMimeRecord("application/octet-stream", data)
 		case "url":
 			ndefMessage = createNDEFURIRecord(string(data))
+		case "openprinttag":
+			// Parse JSON input and encode to CBOR
+			var input openprinttag.Input
+			if err := json.Unmarshal(data, &input); err != nil {
+				return fmt.Errorf("invalid openprinttag JSON: %w", err)
+			}
+			cborPayload, err := input.Encode()
+			if err != nil {
+				return fmt.Errorf("failed to encode openprinttag: %w", err)
+			}
+			ndefMessage = createNDEFMimeRecord(openprinttag.MIMEType, cborPayload)
 		default:
-			return fmt.Errorf("unsupported data type: %s (use 'json', 'text', 'binary', or 'url')", dataType)
+			return fmt.Errorf("unsupported data type: %s (use 'json', 'text', 'binary', 'url', or 'openprinttag')", dataType)
 		}
 	}
 
@@ -357,6 +371,9 @@ func createMultiRecordNDEF(url string, data []byte, dataType string) []byte {
 		dataRecord = createNDEFRecordRaw(0x01, []byte("T"), textPayload, false, true)
 	case "binary":
 		dataRecord = createNDEFRecordRaw(0x02, []byte("application/octet-stream"), data, false, true)
+	case "openprinttag":
+		// Data is already CBOR-encoded at this point
+		dataRecord = createNDEFRecordRaw(0x02, []byte(openprinttag.MIMEType), data, false, true)
 	default:
 		textPayload := []byte{0x02}
 		textPayload = append(textPayload, []byte("en")...)
@@ -836,6 +853,43 @@ func readNDEFData(card *scard.Card, cardInfo *Card) {
 				}
 			}
 		}
+	} else if cardInfo.Type == "ISO 15693" {
+		// ISO 15693 (Type 5) tags: NDEF starts at block 1 (after CC at block 0)
+		maxBlocks := 79 // 80 blocks total, skip CC at block 0
+		for blockNum := 1; blockNum < 1+maxBlocks; blockNum++ {
+			blockData, err := readNTAGPage(card, blockNum)
+			if err != nil {
+				logging.Debug(logging.CatCard, "NDEF read failed", map[string]any{
+					"block": blockNum,
+					"error": err.Error(),
+				})
+				break
+			}
+
+			allData = append(allData, blockData...)
+
+			// Check for NDEF terminator
+			for _, b := range blockData {
+				if b == 0xFE {
+					goto done
+				}
+			}
+
+			// Check if we have complete NDEF message
+			if len(allData) > 2 && allData[0] == 0x03 {
+				var ndefLength, ndefStart int
+				if allData[1] == 0xFF && len(allData) >= 4 {
+					ndefLength = int(allData[2])<<8 | int(allData[3])
+					ndefStart = 4
+				} else if allData[1] != 0xFF {
+					ndefLength = int(allData[1])
+					ndefStart = 2
+				}
+				if ndefStart > 0 && len(allData) >= ndefStart+ndefLength+1 {
+					break
+				}
+			}
+		}
 	} else {
 		// NTAG and other cards: read pages starting from page 4
 		maxPages := 40
@@ -981,6 +1035,19 @@ done:
 			if mimeType == "application/json" {
 				cardInfo.Data = string(payload)
 				cardInfo.DataType = "json"
+			} else if mimeType == openprinttag.MIMEType {
+				// OpenPrintTag format (application/vnd.openprinttag)
+				opt, err := openprinttag.Decode(payload)
+				if err == nil {
+					resp := opt.ToResponse()
+					jsonData, _ := json.Marshal(resp)
+					cardInfo.Data = string(jsonData)
+					cardInfo.DataType = "openprinttag"
+				} else {
+					// Fallback to binary if CBOR decode fails
+					cardInfo.Data = hex.EncodeToString(payload)
+					cardInfo.DataType = "binary"
+				}
 			} else if mimeType == "application/octet-stream" {
 				cardInfo.Data = hex.EncodeToString(payload)
 				cardInfo.DataType = "binary"
@@ -1324,8 +1391,10 @@ func RemovePassword(readerName string, password []byte) error {
 
 // WriteMultipleRecords writes multiple NDEF records to a card
 type NDEFRecord struct {
-	Type string `json:"type"` // "url", "text", "json", "binary"
-	Data string `json:"data"` // Data content (base64 for binary)
+	Type     string `json:"type"`               // "url", "text", "json", "binary", "mime"
+	Data     string `json:"data"`               // Data content
+	MimeType string `json:"mimeType,omitempty"` // For generic mime records (e.g., "application/vnd.openprinttag")
+	DataType string `json:"dataType,omitempty"` // "binary" for base64-encoded data
 }
 
 func WriteMultipleRecords(readerName string, records []NDEFRecord) error {
@@ -1344,6 +1413,14 @@ func WriteMultipleRecords(readerName string, records []NDEFRecord) error {
 		return fmt.Errorf("failed to connect to reader: %w", err)
 	}
 	defer card.Disconnect(scard.LeaveCard)
+
+	// Get ATR to detect card type
+	status, err := card.Status()
+	if err != nil {
+		return fmt.Errorf("failed to get card status: %w", err)
+	}
+	atr := hex.EncodeToString(status.Atr)
+	isISO15693 := contains(atr, "03060b")
 
 	// Build multi-record NDEF message
 	var ndefRecords []byte
@@ -1366,12 +1443,28 @@ func WriteMultipleRecords(readerName string, records []NDEFRecord) error {
 		case "json":
 			recordBytes = createNDEFRecordRaw(0x02, []byte("application/json"), []byte(rec.Data), isFirst, isLast)
 		case "binary":
-			// Decode base64
+			// Decode hex
 			decoded, err := hex.DecodeString(rec.Data)
 			if err != nil {
 				return fmt.Errorf("invalid binary data in record %d: %w", i, err)
 			}
 			recordBytes = createNDEFRecordRaw(0x02, []byte("application/octet-stream"), decoded, isFirst, isLast)
+		case "mime":
+			if rec.MimeType == "" {
+				return fmt.Errorf("mimeType required for mime record type in record %d", i)
+			}
+			var payload []byte
+			if rec.DataType == "binary" {
+				// Data is base64 encoded
+				decoded, err := base64.StdEncoding.DecodeString(rec.Data)
+				if err != nil {
+					return fmt.Errorf("invalid base64 data in mime record %d: %w", i, err)
+				}
+				payload = decoded
+			} else {
+				payload = []byte(rec.Data)
+			}
+			recordBytes = createNDEFRecordRaw(0x02, []byte(rec.MimeType), payload, isFirst, isLast)
 		default:
 			return fmt.Errorf("unsupported record type: %s", rec.Type)
 		}
@@ -1390,8 +1483,29 @@ func WriteMultipleRecords(readerName string, records []NDEFRecord) error {
 	tlv = append(tlv, ndefRecords...)
 	tlv = append(tlv, 0xFE)
 
-	if err := writeNTAGPages(card, 4, tlv); err != nil {
-		return fmt.Errorf("failed to write NDEF records: %w", err)
+	if isISO15693 {
+		// ISO 15693 (Type 5) tags: CC at block 0, NDEF at block 1
+		// CC format: E1 [version/access] [size/8] [features]
+		// - 0xE1: Magic number
+		// - 0x40: Version 1.0 (4), read/write access (0)
+		// - Size: Available memory / 8 (we'll use 0x40 = 512 bytes, conservative)
+		// - 0x00: No special features
+		cc := []byte{0xE1, 0x40, 0x40, 0x00}
+
+		// Write CC at block 0
+		if err := writeNTAGPages(card, 0, cc); err != nil {
+			return fmt.Errorf("failed to write CC block: %w", err)
+		}
+
+		// Write NDEF TLV starting at block 1
+		if err := writeNTAGPages(card, 1, tlv); err != nil {
+			return fmt.Errorf("failed to write NDEF records: %w", err)
+		}
+	} else {
+		// NTAG (Type 2) tags: NDEF at page 4
+		if err := writeNTAGPages(card, 4, tlv); err != nil {
+			return fmt.Errorf("failed to write NDEF records: %w", err)
+		}
 	}
 
 	return nil

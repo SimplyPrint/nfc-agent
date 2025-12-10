@@ -537,11 +537,12 @@
                     <input type="text" id="writeURL" placeholder="https://example.com/spool/123">
 
                     <label for="writeDataType">Data Type:</label>
-                    <select id="writeDataType">
+                    <select id="writeDataType" onchange="onDataTypeChange()">
                         <option value="text">Text</option>
                         <option value="json">JSON</option>
                         <option value="url">URL only</option>
                         <option value="binary">Binary (base64)</option>
+                        <option value="openprinttag">OpenPrintTag (Filament)</option>
                     </select>
 
                     <label for="writeData">Data to Write:</label>
@@ -1042,9 +1043,19 @@
             // Show data if present (and different from URL)
             if (card.data && card.data !== card.url) {
                 let displayData = escapeHtml(card.data);
+                let dataTypeLabel = card.dataType || 'unknown';
+                let dataTypeIcon = '📄';
 
-                // Format JSON nicely
-                if (card.dataType === 'json') {
+                // Format based on data type
+                if (card.dataType === 'openprinttag') {
+                    // Special handling for OpenPrintTag data
+                    dataTypeLabel = 'OpenPrintTag (Filament)';
+                    dataTypeIcon = '🧵';
+                    const formattedOpt = formatOpenPrintTagData(card.data);
+                    if (formattedOpt) {
+                        displayData = formattedOpt;
+                    }
+                } else if (card.dataType === 'json') {
                     try {
                         const jsonObj = JSON.parse(card.data);
                         displayData = JSON.stringify(jsonObj, null, 2);
@@ -1059,12 +1070,17 @@
                     document.getElementById('writeDataType').value = card.dataType || 'text';
                 }
 
+                // Use different display for OpenPrintTag (HTML vs pre)
+                const dataContent = card.dataType === 'openprinttag' && formatOpenPrintTagData(card.data)
+                    ? `<div style="background: #f8f9fa; padding: 10px; border-radius: 4px;">${displayData}</div>`
+                    : `<pre style="background: #f8f9fa; padding: 10px; border-radius: 4px; overflow-x: auto; max-height: 200px; font-size: 12px; margin: 0;">${displayData}</pre>`;
+
                 dataSection += `
                     <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd;">
                         <div style="font-weight: 600; color: #495057; margin-bottom: 5px;">
-                            📄 Stored Data (${card.dataType || 'unknown'}):
+                            ${dataTypeIcon} Stored Data (${dataTypeLabel}):
                         </div>
-                        <pre style="background: #f8f9fa; padding: 10px; border-radius: 4px; overflow-x: auto; max-height: 200px; font-size: 12px; margin: 0;">${displayData}</pre>
+                        ${dataContent}
                     </div>
                 `;
             } else if (card.data && card.dataType === 'url' && updateFormFields) {
@@ -1141,6 +1157,29 @@
                     JSON.parse(data);
                 } catch (e) {
                     log('Invalid JSON data: ' + e.message, 'error');
+                    return;
+                }
+            }
+
+            // Validate OpenPrintTag JSON
+            if (dataType === 'openprinttag' && data.trim()) {
+                try {
+                    const opt = JSON.parse(data);
+                    // Check required fields
+                    if (!opt.materialName) {
+                        log('OpenPrintTag requires materialName', 'error');
+                        return;
+                    }
+                    if (!opt.brandName) {
+                        log('OpenPrintTag requires brandName', 'error');
+                        return;
+                    }
+                    if (opt.nominalWeight === undefined) {
+                        log('OpenPrintTag requires nominalWeight', 'error');
+                        return;
+                    }
+                } catch (e) {
+                    log('Invalid OpenPrintTag JSON: ' + e.message, 'error');
                     return;
                 }
             }
@@ -1269,6 +1308,74 @@
                         </div>
                     </div>
                 `;
+            }
+        }
+
+        function onDataTypeChange() {
+            const dataType = document.getElementById('writeDataType').value;
+            const dataField = document.getElementById('writeData');
+
+            if (dataType === 'openprinttag') {
+                // Pre-fill with OpenPrintTag template
+                const template = {
+                    materialName: "PLA",
+                    brandName: "Generic",
+                    materialClass: 0,
+                    materialType: 0,
+                    nominalWeight: 1000,
+                    filamentDiameter: 1.75,
+                    primaryColor: "#FFFFFF"
+                };
+                dataField.value = JSON.stringify(template, null, 2);
+                dataField.placeholder = 'OpenPrintTag JSON (materialName, brandName, etc.)';
+            } else if (dataType === 'json') {
+                dataField.placeholder = 'Enter JSON data here...';
+            } else if (dataType === 'binary') {
+                dataField.placeholder = 'Enter base64-encoded binary data...';
+            } else if (dataType === 'url') {
+                dataField.placeholder = 'Enter URL (or use the URL field above)...';
+            } else {
+                dataField.placeholder = 'Enter text data here...';
+            }
+        }
+
+        function formatOpenPrintTagData(data) {
+            try {
+                const opt = JSON.parse(data);
+                let html = '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">';
+
+                if (opt.materialName) html += `<div><strong>Material:</strong> ${escapeHtml(opt.materialName)}</div>`;
+                if (opt.brandName) html += `<div><strong>Brand:</strong> ${escapeHtml(opt.brandName)}</div>`;
+                if (opt.materialClass !== undefined) html += `<div><strong>Class:</strong> ${opt.materialClass === 0 ? 'FFF' : opt.materialClass === 1 ? 'SLA' : opt.materialClass}</div>`;
+                if (opt.materialType !== undefined) {
+                    const types = ['PLA', 'ABS', 'PETG', 'ASA', 'PC', 'Nylon', 'TPU', 'PVA', 'HIPS', 'PP'];
+                    html += `<div><strong>Type:</strong> ${types[opt.materialType] || opt.materialType}</div>`;
+                }
+                if (opt.nominalWeight) html += `<div><strong>Nominal Weight:</strong> ${opt.nominalWeight}g</div>`;
+                if (opt.consumedWeight !== undefined) html += `<div><strong>Consumed:</strong> ${opt.consumedWeight}g</div>`;
+                if (opt.remainingWeight !== undefined) html += `<div><strong>Remaining:</strong> ${opt.remainingWeight}g</div>`;
+                if (opt.filamentDiameter) html += `<div><strong>Diameter:</strong> ${opt.filamentDiameter}mm</div>`;
+                if (opt.primaryColor) {
+                    html += `<div><strong>Color:</strong> <span style="display: inline-block; width: 16px; height: 16px; background: ${escapeHtml(opt.primaryColor)}; border: 1px solid #ccc; vertical-align: middle; border-radius: 3px;"></span> ${escapeHtml(opt.primaryColor)}</div>`;
+                }
+                if (opt.minPrintTemp) html += `<div><strong>Print Temp:</strong> ${opt.minPrintTemp}°C - ${opt.maxPrintTemp || '?'}°C</div>`;
+                if (opt.density) html += `<div><strong>Density:</strong> ${opt.density} g/cm³</div>`;
+
+                html += '</div>';
+
+                // Show UUIDs in a collapsible section
+                if (opt.instanceUuid || opt.materialUuid || opt.brandUuid) {
+                    html += '<details style="margin-top: 8px;"><summary style="cursor: pointer; color: #666;">UUIDs</summary>';
+                    html += '<div style="font-size: 11px; font-family: monospace; margin-top: 4px;">';
+                    if (opt.instanceUuid) html += `<div>Instance: ${escapeHtml(opt.instanceUuid)}</div>`;
+                    if (opt.materialUuid) html += `<div>Material: ${escapeHtml(opt.materialUuid)}</div>`;
+                    if (opt.brandUuid) html += `<div>Brand: ${escapeHtml(opt.brandUuid)}</div>`;
+                    html += '</div></details>';
+                }
+
+                return html;
+            } catch (e) {
+                return null;
             }
         }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/SimplyPrint/nfc-agent/internal/core"
 	"github.com/SimplyPrint/nfc-agent/internal/data"
 	"github.com/SimplyPrint/nfc-agent/internal/logging"
+	"github.com/SimplyPrint/nfc-agent/internal/openprinttag"
 	"github.com/gorilla/websocket"
 )
 
@@ -329,8 +330,16 @@ func (c *WSClient) handleWriteCard(id string, payload json.RawMessage) {
 			c.sendError(id, "invalid base64 data")
 			return
 		}
+	case "openprinttag":
+		// Validate JSON structure for openprinttag
+		var input openprinttag.Input
+		if err := json.Unmarshal([]byte(req.Data), &input); err != nil {
+			c.sendError(id, "invalid openprinttag JSON format: "+err.Error())
+			return
+		}
+		dataBytes = []byte(req.Data)
 	default:
-		c.sendError(id, "invalid dataType")
+		c.sendError(id, "invalid dataType (must be 'text', 'json', 'binary', 'url', or 'openprinttag')")
 		return
 	}
 

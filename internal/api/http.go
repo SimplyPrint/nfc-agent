@@ -11,6 +11,7 @@ import (
 	"github.com/SimplyPrint/nfc-agent/internal/core"
 	"github.com/SimplyPrint/nfc-agent/internal/data"
 	"github.com/SimplyPrint/nfc-agent/internal/logging"
+	"github.com/SimplyPrint/nfc-agent/internal/openprinttag"
 	"github.com/SimplyPrint/nfc-agent/internal/service"
 	"github.com/SimplyPrint/nfc-agent/internal/web"
 )
@@ -207,9 +208,19 @@ func handleReaderCard(w http.ResponseWriter, r *http.Request, readerName string)
 				})
 				return
 			}
+		case "openprinttag":
+			// Validate JSON structure for openprinttag
+			var input openprinttag.Input
+			if err := json.Unmarshal([]byte(req.Data), &input); err != nil {
+				respondJSON(w, http.StatusBadRequest, map[string]string{
+					"error": "invalid openprinttag JSON format: " + err.Error(),
+				})
+				return
+			}
+			dataBytes = []byte(req.Data)
 		default:
 			respondJSON(w, http.StatusBadRequest, map[string]string{
-				"error": "dataType must be 'text', 'json', 'binary', or 'url'",
+				"error": "dataType must be 'text', 'json', 'binary', 'url', or 'openprinttag'",
 			})
 			return
 		}
