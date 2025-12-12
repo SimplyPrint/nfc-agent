@@ -9,7 +9,8 @@ type TrayApp struct {
 }
 
 // New creates a new TrayApp instance (no-op on Linux)
-func New(serverAddr string, onQuit func()) *TrayApp {
+func New(serverAddr string, isFirstRun bool, onQuit func()) *TrayApp {
+	// isFirstRun is ignored on Linux - no tray, no welcome dialogs
 	return &TrayApp{
 		serverAddr: serverAddr,
 		onQuit:     onQuit,

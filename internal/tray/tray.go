@@ -4,12 +4,15 @@ package tray
 
 import (
 	"fmt"
+	"log"
 	"os/exec"
 	"runtime"
 	"sync"
 
 	"github.com/SimplyPrint/nfc-agent/internal/api"
 	"github.com/SimplyPrint/nfc-agent/internal/core"
+	"github.com/SimplyPrint/nfc-agent/internal/service"
+	"github.com/SimplyPrint/nfc-agent/internal/settings"
 	"github.com/SimplyPrint/nfc-agent/internal/welcome"
 	"github.com/getlantern/systray"
 )
@@ -18,6 +21,7 @@ import (
 type TrayApp struct {
 	serverAddr  string
 	onQuit      func()
+	isFirstRun  bool
 	readerCount int
 	mu          sync.Mutex
 
@@ -27,9 +31,10 @@ type TrayApp struct {
 }
 
 // New creates a new TrayApp instance
-func New(serverAddr string, onQuit func()) *TrayApp {
+func New(serverAddr string, isFirstRun bool, onQuit func()) *TrayApp {
 	return &TrayApp{
 		serverAddr: serverAddr,
+		isFirstRun: isFirstRun,
 		onQuit:     onQuit,
 	}
 }
@@ -104,6 +109,12 @@ func (t *TrayApp) onReady() {
 			}
 		}
 	}()
+
+	// Show first-run prompts after tray is fully initialized
+	// This prevents race condition with Cocoa event loop on macOS
+	if t.isFirstRun {
+		go t.showFirstRunPrompts()
+	}
 }
 
 func (t *TrayApp) onExit() {
@@ -135,6 +146,36 @@ func (t *TrayApp) updateStatus() {
 			t.mReaders.SetTitle(fmt.Sprintf("Readers: %d connected", t.readerCount))
 		}
 	}
+}
+
+// showFirstRunPrompts displays welcome dialogs and prompts on first run.
+// This runs after the tray is initialized to avoid race conditions with Cocoa on macOS.
+func (t *TrayApp) showFirstRunPrompts() {
+	welcome.ShowWelcome()
+
+	// Check if auto-start is not already configured (e.g., by Homebrew)
+	svc := service.New()
+	if !svc.IsInstalled() {
+		// Prompt user to enable auto-start
+		if welcome.PromptAutostart() {
+			if err := svc.Install(); err != nil {
+				log.Printf("Failed to enable auto-start: %v", err)
+			} else {
+				log.Println("Auto-start enabled")
+			}
+		}
+	}
+
+	// Prompt for crash reporting
+	if welcome.PromptCrashReporting() {
+		if err := settings.SetCrashReporting(true); err != nil {
+			log.Printf("Failed to save crash reporting setting: %v", err)
+		} else {
+			log.Println("Crash reporting enabled")
+		}
+	}
+
+	_ = welcome.MarkAsShown() // Ignore error - non-critical
 }
 
 // SetReaderCount updates the displayed reader count
