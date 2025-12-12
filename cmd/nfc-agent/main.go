@@ -134,6 +134,9 @@ func run(cfg *config.Config, headless bool) {
 		"version": api.Version,
 	})
 
+	// Initialize update checker
+	api.InitUpdateChecker()
+
 	// Set up shutdown handler for API endpoint
 	api.SetShutdownHandler(func() {
 		log.Println("Shutting down...")

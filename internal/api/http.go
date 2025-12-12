@@ -17,6 +17,7 @@ import (
 	"github.com/SimplyPrint/nfc-agent/internal/openprinttag"
 	"github.com/SimplyPrint/nfc-agent/internal/service"
 	"github.com/SimplyPrint/nfc-agent/internal/settings"
+	"github.com/SimplyPrint/nfc-agent/internal/updater"
 	"github.com/SimplyPrint/nfc-agent/internal/web"
 )
 
@@ -66,9 +67,17 @@ func init() {
 // shutdownHandler is called when a shutdown is requested via API
 var shutdownHandler func()
 
+// updateChecker handles checking for updates from GitHub
+var updateChecker *updater.Checker
+
 // SetShutdownHandler sets the callback for shutdown requests
 func SetShutdownHandler(handler func()) {
 	shutdownHandler = handler
+}
+
+// InitUpdateChecker initializes the update checker with the current version
+func InitUpdateChecker() {
+	updateChecker = updater.NewChecker(Version)
 }
 
 // NewMux constructs and returns the HTTP mux for the API.
@@ -89,6 +98,7 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("/v1/settings", corsMiddleware(handleSettings))
 	mux.HandleFunc("/v1/shutdown", corsMiddleware(handleShutdown))
 	mux.HandleFunc("/v1/autostart", corsMiddleware(handleAutostart))
+	mux.HandleFunc("/v1/updates", corsMiddleware(handleUpdates))
 	return mux
 }
 
@@ -542,11 +552,25 @@ func handleVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respondJSON(w, http.StatusOK, map[string]string{
+	response := map[string]interface{}{
 		"version":   Version,
 		"buildTime": BuildTime,
 		"gitCommit": GitCommit,
-	})
+	}
+
+	// Include update info if available (for JS SDK / SimplyPrint integration)
+	if updateChecker != nil {
+		info := updateChecker.Check(false) // Use cached result
+		response["updateAvailable"] = info.Available
+		if info.LatestVersion != "" {
+			response["latestVersion"] = info.LatestVersion
+		}
+		if info.ReleaseURL != "" {
+			response["releaseUrl"] = info.ReleaseURL
+		}
+	}
+
+	respondJSON(w, http.StatusOK, response)
 }
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -832,5 +856,25 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 	}
+}
+
+// handleUpdates checks for available updates from GitHub releases
+func handleUpdates(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Initialize update checker if not already done
+	if updateChecker == nil {
+		InitUpdateChecker()
+	}
+
+	// Check if force refresh is requested
+	forceRefresh := r.URL.Query().Get("refresh") == "true"
+
+	info := updateChecker.Check(forceRefresh)
+
+	respondJSON(w, http.StatusOK, info)
 }
 

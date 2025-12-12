@@ -555,23 +555,6 @@
             color: var(--text);
         }
 
-        .update-notes {
-            font-size: 12px;
-            color: var(--text-muted);
-            margin-top: 12px;
-            padding: 10px;
-            background: var(--bg);
-            border-radius: 6px;
-            max-height: 120px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            display: none;
-        }
-
-        .update-notes.show {
-            display: block;
-        }
-
         .version-status {
             margin-left: 8px;
             font-size: 11px;
@@ -602,10 +585,9 @@
             </div>
             <div class="update-banner-actions">
                 <a href="#" id="update-download-btn" class="update-btn" target="_blank">Download Update</a>
-                <button onclick="toggleUpdateNotes()" class="update-btn secondary">Release Notes</button>
+                <a href="#" id="update-release-btn" class="update-btn secondary" target="_blank">View Release</a>
                 <button onclick="dismissUpdate()" class="update-btn secondary">Dismiss</button>
             </div>
-            <div id="update-notes" class="update-notes"></div>
         </div>
 
         <div class="card" id="status">
@@ -1398,8 +1380,8 @@ The crash report contains technical details that help us fix the bug.
         function updateUpdateBanner(info) {
             const banner = document.getElementById('update-banner');
             const versionEl = document.getElementById('update-version');
-            const notesEl = document.getElementById('update-notes');
             const downloadBtn = document.getElementById('update-download-btn');
+            const releaseBtn = document.getElementById('update-release-btn');
             const versionStatus = document.getElementById('version-status');
 
             // Handle dev versions
@@ -1414,20 +1396,17 @@ The crash report contains technical details that help us fix the bug.
                 banner.classList.add('show');
                 versionEl.textContent = `${info.currentVersion} → ${info.latestVersion}`;
 
-                // Set release notes
-                if (info.releaseNotes) {
-                    notesEl.textContent = info.releaseNotes;
-                } else {
-                    notesEl.textContent = 'No release notes available.';
-                }
-
                 // Set download URL
                 if (info.downloadUrl) {
                     downloadBtn.href = info.downloadUrl;
-                    downloadBtn.textContent = 'Download Update';
-                } else if (info.releaseUrl) {
-                    downloadBtn.href = info.releaseUrl;
-                    downloadBtn.textContent = 'View Release';
+                    downloadBtn.style.display = 'inline-flex';
+                } else {
+                    downloadBtn.style.display = 'none';
+                }
+
+                // Set release URL
+                if (info.releaseUrl) {
+                    releaseBtn.href = info.releaseUrl;
                 }
 
                 // Update version status
@@ -1443,11 +1422,6 @@ The crash report contains technical details that help us fix the bug.
                     versionStatus.style.display = 'inline';
                 }
             }
-        }
-
-        function toggleUpdateNotes() {
-            const notesEl = document.getElementById('update-notes');
-            notesEl.classList.toggle('show');
         }
 
         function dismissUpdate() {
