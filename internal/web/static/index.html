@@ -490,6 +490,93 @@
         .card {
             scroll-margin-top: 16px;
         }
+
+        /* Update notification styles */
+        .update-banner {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(34, 197, 94, 0.15));
+            border: 1px solid var(--accent);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+            display: none;
+        }
+
+        .update-banner.show {
+            display: block;
+        }
+
+        .update-banner-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+
+        .update-banner-title {
+            font-weight: 600;
+            font-size: 15px;
+            color: var(--accent);
+        }
+
+        .update-banner-version {
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        .update-banner-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .update-btn {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .update-btn:hover {
+            opacity: 0.9;
+        }
+
+        .update-btn.secondary {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text);
+        }
+
+        .update-notes {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 12px;
+            padding: 10px;
+            background: var(--bg);
+            border-radius: 6px;
+            max-height: 120px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            display: none;
+        }
+
+        .update-notes.show {
+            display: block;
+        }
+
+        .version-status {
+            margin-left: 8px;
+            font-size: 11px;
+            font-weight: normal;
+        }
     </style>
 </head>
 <body>
@@ -508,6 +595,19 @@
             <a href="#about" class="nav-item">About</a>
         </nav>
 
+        <div class="update-banner" id="update-banner">
+            <div class="update-banner-header">
+                <span class="update-banner-title">Update Available</span>
+                <span class="update-banner-version" id="update-version"></span>
+            </div>
+            <div class="update-banner-actions">
+                <a href="#" id="update-download-btn" class="update-btn" target="_blank">Download Update</a>
+                <button onclick="toggleUpdateNotes()" class="update-btn secondary">Release Notes</button>
+                <button onclick="dismissUpdate()" class="update-btn secondary">Dismiss</button>
+            </div>
+            <div id="update-notes" class="update-notes"></div>
+        </div>
+
         <div class="card" id="status">
             <div class="card-header">
                 <span class="card-title">Status</span>
@@ -519,7 +619,10 @@
             <div class="info-grid">
                 <div class="info-row">
                     <span class="info-label">Version</span>
-                    <span class="info-value" id="version">-</span>
+                    <span class="info-value">
+                        <span id="version">-</span>
+                        <span id="version-status" class="version-status" style="display: none;"></span>
+                    </span>
                 </div>
                 <div class="info-row">
                     <span class="info-label">Build Time</span>
@@ -1247,7 +1350,7 @@ The crash report contains technical details that help us fix the bug.
                 // Recommendation
                 html += '<div style="background: rgba(34, 197, 94, 0.1); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px;">';
                 html += '<div style="font-weight: 500; color: var(--success); margin-bottom: 4px;">Recommended: ACR1552U</div>';
-                html += '<div style="font-size: 12px; color: var(--text-muted);">Supports the widest range of tags including NTAG 424 DNA, required for <a href="https://openprinttag.org" target="_blank" style="color: var(--accent);">OpenPrintTag</a> filament tags. ';
+                html += '<div style="font-size: 12px; color: var(--text-muted);">Supports the widest range of tags including ISO 15693 (NFC-V/SLIX2), required for <a href="https://openprinttag.org" target="_blank" style="color: var(--accent);">OpenPrintTag</a> filament tags. ';
                 html += '<a href="https://amzn.to/48KvK4v" target="_blank" style="color: var(--accent);">Buy on Amazon</a></div>';
                 html += '</div>';
 
@@ -1275,6 +1378,85 @@ The crash report contains technical details that help us fix the bug.
             }
         }
 
+        // Update checking functions
+        let updateInfo = null;
+        let updateDismissed = sessionStorage.getItem('updateDismissed') === 'true';
+
+        async function checkForUpdates(forceRefresh = false) {
+            try {
+                const url = forceRefresh ? '/v1/updates?refresh=true' : '/v1/updates';
+                const res = await fetch(url);
+                const data = await res.json();
+
+                updateInfo = data;
+                updateUpdateBanner(data);
+            } catch (error) {
+                console.error('Failed to check for updates:', error);
+            }
+        }
+
+        function updateUpdateBanner(info) {
+            const banner = document.getElementById('update-banner');
+            const versionEl = document.getElementById('update-version');
+            const notesEl = document.getElementById('update-notes');
+            const downloadBtn = document.getElementById('update-download-btn');
+            const versionStatus = document.getElementById('version-status');
+
+            // Handle dev versions
+            if (info.isDev) {
+                versionStatus.textContent = '(dev build)';
+                versionStatus.style.color = 'var(--warning)';
+                versionStatus.style.display = 'inline';
+            }
+
+            // Show/hide banner based on update availability and dismiss state
+            if (info.available && !updateDismissed) {
+                banner.classList.add('show');
+                versionEl.textContent = `${info.currentVersion} → ${info.latestVersion}`;
+
+                // Set release notes
+                if (info.releaseNotes) {
+                    notesEl.textContent = info.releaseNotes;
+                } else {
+                    notesEl.textContent = 'No release notes available.';
+                }
+
+                // Set download URL
+                if (info.downloadUrl) {
+                    downloadBtn.href = info.downloadUrl;
+                    downloadBtn.textContent = 'Download Update';
+                } else if (info.releaseUrl) {
+                    downloadBtn.href = info.releaseUrl;
+                    downloadBtn.textContent = 'View Release';
+                }
+
+                // Update version status
+                versionStatus.textContent = '(update available)';
+                versionStatus.style.color = 'var(--warning)';
+                versionStatus.style.display = 'inline';
+            } else {
+                banner.classList.remove('show');
+
+                if (!info.isDev && !info.error && info.latestVersion) {
+                    versionStatus.textContent = '(up to date)';
+                    versionStatus.style.color = 'var(--success)';
+                    versionStatus.style.display = 'inline';
+                }
+            }
+        }
+
+        function toggleUpdateNotes() {
+            const notesEl = document.getElementById('update-notes');
+            notesEl.classList.toggle('show');
+        }
+
+        function dismissUpdate() {
+            updateDismissed = true;
+            sessionStorage.setItem('updateDismissed', 'true');
+            const banner = document.getElementById('update-banner');
+            banner.classList.remove('show');
+        }
+
         // Add event listeners for filter changes
         document.getElementById('log-level').addEventListener('change', fetchLogs);
         document.getElementById('log-category').addEventListener('change', fetchLogs);
@@ -1286,10 +1468,14 @@ The crash report contains technical details that help us fix the bug.
         fetchCrashReportingStatus();
         fetchCrashLogs();
         fetchSupportedReaders();
+        checkForUpdates();
 
         // Refresh every 5 seconds
         setInterval(fetchData, 5000);
         setInterval(fetchLogs, 2000);
+
+        // Check for updates every 30 minutes
+        setInterval(() => checkForUpdates(false), 30 * 60 * 1000);
     </script>
 </body>
 </html>

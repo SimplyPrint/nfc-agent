@@ -44,7 +44,7 @@ NFC Agent works with any **PC/SC compatible** contactless smart card reader. Tes
 | **Identiv** | uTrust series | — |
 | **HID Global** | OMNIKEY series | — |
 
-> **Recommended: [ACR1552U](https://amzn.to/48KvK4v)** — Supports the widest range of tags including NTAG 424 DNA, which is required for [OpenPrintTag](https://openprinttag.org) filament tags.
+> **Recommended: [ACR1552U](https://amzn.to/48KvK4v)** — Supports the widest range of tags including ISO 15693 (NFC-V/SLIX2), which is required for [OpenPrintTag](https://openprinttag.org) filament tags.
 
 <sub>Amazon links are affiliate links.</sub>
 
