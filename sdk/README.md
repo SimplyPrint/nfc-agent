@@ -173,9 +173,14 @@ await ws.removePassword(0, 'mypassword');
 // Lock card permanently (IRREVERSIBLE!)
 await ws.lockCard(0);
 
-// Get version info
+// Get version info (includes update availability)
 const version = await ws.getVersion();
 console.log('Agent version:', version.version);
+console.log('Build time:', version.buildTime);
+if (version.updateAvailable) {
+  console.log('Update available:', version.latestVersion);
+  console.log('Download:', version.releaseUrl);
+}
 
 // Health check
 const health = await ws.health();
@@ -212,6 +217,13 @@ await client.writeCard(0, { data: 'Hello!', dataType: 'text' });
 
 // Get supported readers info
 const supported = await client.getSupportedReaders();
+
+// Get version info (includes update availability)
+const version = await client.getVersion();
+console.log('Version:', version.version);
+if (version.updateAvailable) {
+  console.log('Update available:', version.latestVersion);
+}
 ```
 
 ### Card Polling (REST)
@@ -276,6 +288,7 @@ poller.start();
 | `readCard(reader)` | Read card data |
 | `writeCard(reader, options)` | Write data to card |
 | `getSupportedReaders()` | Get supported hardware info |
+| `getVersion()` | Get agent version and update info |
 | `pollCard(reader, options)` | Create a CardPoller |
 
 ### Types
@@ -310,6 +323,15 @@ interface CardDetectedEvent {
 
 interface CardRemovedEvent {
   reader: number;
+}
+
+interface VersionInfo {
+  version: string;
+  buildTime: string;
+  gitCommit: string;
+  updateAvailable?: boolean;  // true if a newer version exists
+  latestVersion?: string;     // latest available version
+  releaseUrl?: string;        // URL to download the update
 }
 ```
 

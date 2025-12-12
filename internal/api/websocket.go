@@ -663,11 +663,25 @@ func (c *WSClient) handleSupportedReaders(id string) {
 }
 
 func (c *WSClient) handleVersion(id string) {
-	c.sendResponse(id, "version", map[string]string{
+	response := map[string]interface{}{
 		"version":   Version,
 		"buildTime": BuildTime,
 		"gitCommit": GitCommit,
-	})
+	}
+
+	// Include update info if available (for JS SDK / SimplyPrint integration)
+	if updateChecker != nil {
+		info := updateChecker.Check(false) // Use cached result
+		response["updateAvailable"] = info.Available
+		if info.LatestVersion != "" {
+			response["latestVersion"] = info.LatestVersion
+		}
+		if info.ReleaseURL != "" {
+			response["releaseUrl"] = info.ReleaseURL
+		}
+	}
+
+	c.sendResponse(id, "version", response)
 }
 
 func (c *WSClient) handleHealth(id string) {

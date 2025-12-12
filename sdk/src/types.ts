@@ -240,8 +240,14 @@ export interface SubscribePayload {
  */
 export interface VersionInfo {
   version: string;
-  build?: string;
-  platform?: string;
+  buildTime: string;
+  gitCommit: string;
+  /** Whether a newer version is available */
+  updateAvailable?: boolean;
+  /** Latest available version (if updateAvailable is true) */
+  latestVersion?: string;
+  /** URL to download the latest release */
+  releaseUrl?: string;
 }
 
 /**

@@ -6,6 +6,7 @@ import type {
   PollOptions,
   SupportedReadersResponse,
   APIErrorResponse,
+  VersionInfo,
 } from './types.js';
 import { ConnectionError, CardError, APIError } from './errors.js';
 import { CardPoller } from './poller.js';
@@ -165,6 +166,14 @@ export class NFCAgentClient {
    */
   async getSupportedReaders(): Promise<SupportedReadersResponse> {
     return this.request<SupportedReadersResponse>('/v1/supported-readers');
+  }
+
+  /**
+   * Get agent version information
+   * @returns Version info including build details and update availability
+   */
+  async getVersion(): Promise<VersionInfo> {
+    return this.request<VersionInfo>('/v1/version');
   }
 
   /**

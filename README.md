@@ -176,8 +176,25 @@ Configure via environment variables:
 | `DELETE` | `/v1/readers/{n}/password` | Remove password |
 | `POST` | `/v1/readers/{n}/records` | Write multiple NDEF records |
 | `GET` | `/v1/supported-readers` | List supported reader models |
-| `GET` | `/v1/version` | Get version info |
+| `GET` | `/v1/version` | Get version and update info |
 | `GET` | `/v1/health` | Health check |
+
+#### Version Endpoint
+
+The `/v1/version` endpoint returns version information and checks for available updates:
+
+```json
+{
+  "version": "1.2.3",
+  "buildTime": "2025-01-15T10:30:00Z",
+  "gitCommit": "abc123def456...",
+  "updateAvailable": true,
+  "latestVersion": "1.3.0",
+  "releaseUrl": "https://github.com/SimplyPrint/nfc-agent/releases/tag/v1.3.0"
+}
+```
+
+The `updateAvailable`, `latestVersion`, and `releaseUrl` fields are only present when the agent has checked for updates.
 
 ### WebSocket
 
@@ -189,6 +206,7 @@ Connect to `ws://127.0.0.1:32145/v1/ws` for real-time card events.
 - `write_card` - Write data to card
 - `subscribe` / `unsubscribe` - Real-time card detection
 - `erase_card`, `lock_card`, `set_password`, `remove_password`
+- `version` - Get version and update info (same response as HTTP endpoint)
 
 **Events:**
 - `card_detected` - Card placed on reader
