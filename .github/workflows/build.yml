@@ -356,8 +356,32 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for tag comparison
+
+      - name: Check for SDK changes
+        id: sdk-changes
+        run: |
+          CURRENT_TAG="${GITHUB_REF_NAME}"
+          PREVIOUS_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -v "$CURRENT_TAG" | head -n1)
+
+          if [ -z "$PREVIOUS_TAG" ]; then
+            echo "No previous tag found, publishing SDK"
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            CHANGES=$(git diff --name-only "$PREVIOUS_TAG" "$CURRENT_TAG" -- sdk/)
+            if [ -n "$CHANGES" ]; then
+              echo "SDK changes detected:"
+              echo "$CHANGES"
+              echo "changed=true" >> $GITHUB_OUTPUT
+            else
+              echo "No SDK changes since $PREVIOUS_TAG, skipping publish"
+              echo "changed=false" >> $GITHUB_OUTPUT
+            fi
+          fi
 
       - name: Set up Node.js
+        if: steps.sdk-changes.outputs.changed == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -365,18 +389,21 @@ jobs:
           scope: '@simplyprint'
 
       - name: Install dependencies and build
+        if: steps.sdk-changes.outputs.changed == 'true'
         working-directory: sdk
         run: |
           npm ci
           npm run build
 
       - name: Update package version
+        if: steps.sdk-changes.outputs.changed == 'true'
         working-directory: sdk
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       - name: Publish to GitHub Packages
+        if: steps.sdk-changes.outputs.changed == 'true'
         working-directory: sdk
         run: npm publish
         env:
