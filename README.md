@@ -177,6 +177,8 @@ Configure via environment variables:
 | `POST` | `/v1/readers/{n}/records` | Write multiple NDEF records |
 | `GET` | `/v1/readers/{n}/mifare/{block}` | Read MIFARE Classic block |
 | `POST` | `/v1/readers/{n}/mifare/{block}` | Write MIFARE Classic block |
+| `GET` | `/v1/readers/{n}/ultralight/{page}` | Read MIFARE Ultralight page |
+| `POST` | `/v1/readers/{n}/ultralight/{page}` | Write MIFARE Ultralight page |
 | `GET` | `/v1/supported-readers` | List supported reader models |
 | `GET` | `/v1/version` | Get version and update info |
 | `GET` | `/v1/health` | Health check |
@@ -305,6 +307,75 @@ If no key is provided, the agent tries these default keys in order:
 - **Sector trailers** (blocks 3, 7, 11, 15, etc.) cannot be read or written - they contain authentication keys
 - Block numbers: 0-63 for MIFARE Classic 1K, 0-255 for MIFARE Classic 4K
 - Each block is 16 bytes (32 hex characters)
+
+## MIFARE Ultralight Raw Page Access
+
+For direct page-level access to MIFARE Ultralight cards:
+
+### HTTP API
+
+**Read page 4 (first user data page):**
+```bash
+curl "http://127.0.0.1:32145/v1/readers/0/ultralight/4"
+```
+
+**Read with password (EV1 cards only):**
+```bash
+curl "http://127.0.0.1:32145/v1/readers/0/ultralight/4?password=12345678"
+```
+
+**Write page 4:**
+```bash
+curl -X POST http://127.0.0.1:32145/v1/readers/0/ultralight/4 \
+  -H "Content-Type: application/json" \
+  -d '{"data": "DEADBEEF"}'
+```
+
+**Write with password:**
+```bash
+curl -X POST http://127.0.0.1:32145/v1/readers/0/ultralight/4 \
+  -H "Content-Type: application/json" \
+  -d '{"data": "DEADBEEF", "password": "12345678"}'
+```
+
+### JavaScript SDK
+
+```typescript
+// Read page
+const page = await client.readUltralightPage(0, 4);
+console.log(page.data); // "DEADBEEF" (8 hex chars = 4 bytes)
+
+// Read with password (EV1)
+const page = await client.readUltralightPage(0, 4, { password: '12345678' });
+
+// Write page
+await client.writeUltralightPage(0, 4, { data: 'DEADBEEF' });
+
+// Write with password
+await client.writeUltralightPage(0, 4, { data: 'DEADBEEF', password: '12345678' });
+```
+
+### Memory Layout
+
+| Pages | Contents | Notes |
+|-------|----------|-------|
+| 0-1 | UID | Read-only |
+| 2 | Lock bytes | Writing locks pages permanently! |
+| 3 | OTP / Capability Container | OTP bits are irreversible |
+| 4+ | User data | Safe to read/write |
+| Last 4-5 | Config/Password (EV1) | Varies by variant |
+
+### Page Restrictions
+
+- Pages 0-3 are blocked for writing to prevent accidental damage
+- Each page is 4 bytes (8 hex characters)
+- Page count varies by variant: Ultralight (16 pages), Ultralight C (48 pages), Ultralight EV1 (varies)
+
+### Password Protection (EV1 only)
+
+MIFARE Ultralight EV1 supports password protection:
+- Password is 4 bytes (8 hex characters)
+- Use `password` parameter when accessing protected pages
 
 ## OpenPrintTag Support
 

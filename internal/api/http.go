@@ -228,6 +228,8 @@ func handleReaderRoutes(w http.ResponseWriter, r *http.Request) {
 			handleMultipleRecords(w, r, readerName)
 		case "mifare":
 			handleMifareBlock(w, r, readerName, parts)
+		case "ultralight":
+			handleUltralightPage(w, r, readerName, parts)
 		default:
 			respondJSON(w, http.StatusNotFound, map[string]string{
 				"error": "unknown endpoint",
@@ -1006,5 +1008,105 @@ func handleMifareBlock(w http.ResponseWriter, r *http.Request, readerName string
 	default:
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 	}
+}
+
+// handleUltralightPage handles read/write operations on MIFARE Ultralight pages
+// GET /v1/readers/{n}/ultralight/{page} - Read page
+// POST /v1/readers/{n}/ultralight/{page} - Write page
+func handleUltralightPage(w http.ResponseWriter, r *http.Request, readerName string, parts []string) {
+	// Expect path: /v1/readers/{n}/ultralight/{page}
+	if len(parts) < 5 {
+		respondJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "missing page number (use /ultralight/{page})",
+		})
+		return
+	}
+
+	pageNum, err := strconv.Atoi(parts[4])
+	if err != nil {
+		respondJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "invalid page number",
+		})
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		// Read page
+		password, err := parseUltralightPassword(r.URL.Query().Get("password"))
+		if err != nil {
+			respondJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+
+		data, err := core.ReadUltralightPage(readerName, pageNum, password)
+		if err != nil {
+			logging.Debug(logging.CatHTTP, "Ultralight read failed", map[string]any{
+				"reader": readerName,
+				"page":   pageNum,
+				"error":  err.Error(),
+			})
+			respondJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"page": pageNum,
+			"data": hex.EncodeToString(data),
+		})
+
+	case http.MethodPost:
+		// Write page
+		var req struct {
+			Data     string `json:"data"`     // Hex string, 8 chars = 4 bytes
+			Password string `json:"password"` // Optional, hex string, 8 chars = 4 bytes
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			return
+		}
+
+		data, err := hex.DecodeString(req.Data)
+		if err != nil || len(data) != 4 {
+			respondJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "invalid data (must be 8 hex characters for 4 bytes)",
+			})
+			return
+		}
+
+		password, err := parseUltralightPassword(req.Password)
+		if err != nil {
+			respondJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+
+		if err := core.WriteUltralightPage(readerName, pageNum, data, password); err != nil {
+			logging.Debug(logging.CatHTTP, "Ultralight write failed", map[string]any{
+				"reader": readerName,
+				"page":   pageNum,
+				"error":  err.Error(),
+			})
+			respondJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+
+		respondJSON(w, http.StatusOK, map[string]bool{"success": true})
+
+	default:
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+	}
+}
+
+// parseUltralightPassword parses an optional hex password string (8 hex chars = 4 bytes)
+func parseUltralightPassword(pwdHex string) ([]byte, error) {
+	if pwdHex == "" {
+		return nil, nil
+	}
+	pwd, err := hex.DecodeString(pwdHex)
+	if err != nil || len(pwd) != 4 {
+		return nil, fmt.Errorf("password must be 8 hex characters (4 bytes)")
+	}
+	return pwd, nil
 }
 

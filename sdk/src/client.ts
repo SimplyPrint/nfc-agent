@@ -10,6 +10,9 @@ import type {
   MifareBlockData,
   MifareReadOptions,
   MifareWriteOptions,
+  UltralightPageData,
+  UltralightReadOptions,
+  UltralightWriteOptions,
 } from './types.js';
 import { ConnectionError, CardError, APIError } from './errors.js';
 import { CardPoller } from './poller.js';
@@ -231,6 +234,64 @@ export class NFCAgentClient {
           data: options.data,
           key: options.key,
           keyType: options.keyType,
+        }),
+      });
+    } catch (error) {
+      if (error instanceof APIError) {
+        throw new CardError(error.message);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Read a 4-byte page from a MIFARE Ultralight card
+   * @param readerIndex - Index of the reader (0-based)
+   * @param page - Page number to read (0-based, page 4+ for user data)
+   * @param options - Optional password for EV1 cards with password protection
+   * @returns Page data (4 bytes as hex string)
+   * @throws CardError if read fails or authentication fails
+   */
+  async readUltralightPage(
+    readerIndex: number,
+    page: number,
+    options?: UltralightReadOptions
+  ): Promise<UltralightPageData> {
+    const params = new URLSearchParams();
+    if (options?.password) {
+      params.set('password', options.password);
+    }
+    const query = params.toString();
+    const url = `/v1/readers/${readerIndex}/ultralight/${page}${query ? `?${query}` : ''}`;
+
+    try {
+      return await this.request<UltralightPageData>(url);
+    } catch (error) {
+      if (error instanceof APIError) {
+        throw new CardError(error.message);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Write a 4-byte page to a MIFARE Ultralight card
+   * @param readerIndex - Index of the reader (0-based)
+   * @param page - Page number to write (minimum 4 for user data)
+   * @param options - Write options including data and optional password
+   * @throws CardError if write fails or authentication fails
+   */
+  async writeUltralightPage(
+    readerIndex: number,
+    page: number,
+    options: UltralightWriteOptions
+  ): Promise<void> {
+    try {
+      await this.request(`/v1/readers/${readerIndex}/ultralight/${page}`, {
+        method: 'POST',
+        body: JSON.stringify({
+          data: options.data,
+          password: options.password,
         }),
       });
     } catch (error) {

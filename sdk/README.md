@@ -217,6 +217,37 @@ await ws.writeMifareBlock(0, 4, {
 - Sector trailers (blocks 3, 7, 11, 15, etc.) are blocked for safety
 - If no key is provided, common default keys are tried automatically
 
+### MIFARE Ultralight Raw Page Access
+
+For direct page-level access to MIFARE Ultralight cards:
+
+```typescript
+// Read page 4 (first user data page)
+const page = await ws.readUltralightPage(0, 4);
+console.log(page.data); // hex string, e.g. "DEADBEEF"
+
+// Read with password (EV1 cards only)
+const page = await ws.readUltralightPage(0, 4, {
+  password: '12345678'  // 4 bytes as hex
+});
+
+// Write page 4
+await ws.writeUltralightPage(0, 4, {
+  data: 'DEADBEEF'  // 4 bytes as hex
+});
+
+// Write with password
+await ws.writeUltralightPage(0, 4, {
+  data: 'DEADBEEF',
+  password: '12345678'
+});
+```
+
+**Notes:**
+- Pages 0-3 are system pages (blocked for writing)
+- Each page is 4 bytes (8 hex characters)
+- Password is only needed for EV1 variants with password protection enabled
+
 ---
 
 ## REST API
@@ -262,6 +293,14 @@ console.log('Block data:', block.data);
 await client.writeMifareBlock(0, 4, {
   data: '01120100000000000000000000000000',
   key: 'FFFFFFFFFFFF'
+});
+
+// MIFARE Ultralight raw page access
+const page = await client.readUltralightPage(0, 4);
+console.log('Page data:', page.data);
+
+await client.writeUltralightPage(0, 4, {
+  data: 'DEADBEEF'
 });
 ```
 
@@ -309,6 +348,8 @@ poller.start();
 | `health()` | Health check |
 | `readMifareBlock(reader, block, options?)` | Read raw MIFARE Classic block |
 | `writeMifareBlock(reader, block, options)` | Write raw MIFARE Classic block |
+| `readUltralightPage(reader, page, options?)` | Read raw MIFARE Ultralight page |
+| `writeUltralightPage(reader, page, options)` | Write raw MIFARE Ultralight page |
 
 #### WebSocket Events
 
@@ -332,6 +373,8 @@ poller.start();
 | `getVersion()` | Get agent version and update info |
 | `readMifareBlock(reader, block, options?)` | Read raw MIFARE Classic block |
 | `writeMifareBlock(reader, block, options)` | Write raw MIFARE Classic block |
+| `readUltralightPage(reader, page, options?)` | Read raw MIFARE Ultralight page |
+| `writeUltralightPage(reader, page, options)` | Write raw MIFARE Ultralight page |
 | `pollCard(reader, options)` | Create a CardPoller |
 
 ### Types
@@ -396,6 +439,21 @@ interface MifareWriteOptions {
   data: string;       // 32 hex chars = 16 bytes
   key?: string;       // 12 hex chars = 6 bytes
   keyType?: MifareKeyType;
+}
+
+// MIFARE Ultralight types
+interface UltralightPageData {
+  page: number;
+  data: string;  // 8 hex chars = 4 bytes
+}
+
+interface UltralightReadOptions {
+  password?: string;  // 8 hex chars = 4 bytes (EV1 only)
+}
+
+interface UltralightWriteOptions {
+  data: string;       // 8 hex chars = 4 bytes
+  password?: string;  // 8 hex chars = 4 bytes (EV1 only)
 }
 ```
 

@@ -13,6 +13,9 @@ import type {
   MifareBlockData,
   MifareReadOptions,
   MifareWriteOptions,
+  UltralightPageData,
+  UltralightReadOptions,
+  UltralightWriteOptions,
 } from './types.js';
 import { ConnectionError, CardError, NFCAgentError } from './errors.js';
 
@@ -496,6 +499,58 @@ export class NFCAgentWebSocket {
         data: options.data,
         key: options.key,
         keyType: options.keyType,
+      });
+    } catch (error) {
+      if (error instanceof NFCAgentError) {
+        throw new CardError(error.message);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Read a 4-byte page from a MIFARE Ultralight card
+   * @param readerIndex - Index of the reader (0-based)
+   * @param page - Page number to read (0-based, page 4+ for user data)
+   * @param options - Optional password for EV1 cards with password protection
+   * @returns Page data (4 bytes as hex string)
+   */
+  async readUltralightPage(
+    readerIndex: number,
+    page: number,
+    options?: UltralightReadOptions
+  ): Promise<UltralightPageData> {
+    try {
+      return await this.request<UltralightPageData>('read_ultralight_page', {
+        readerIndex,
+        page,
+        password: options?.password,
+      });
+    } catch (error) {
+      if (error instanceof NFCAgentError) {
+        throw new CardError(error.message);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Write a 4-byte page to a MIFARE Ultralight card
+   * @param readerIndex - Index of the reader (0-based)
+   * @param page - Page number to write (minimum 4 for user data)
+   * @param options - Write options including data and optional password
+   */
+  async writeUltralightPage(
+    readerIndex: number,
+    page: number,
+    options: UltralightWriteOptions
+  ): Promise<void> {
+    try {
+      await this.request('write_ultralight_page', {
+        readerIndex,
+        page,
+        data: options.data,
+        password: options?.password,
       });
     } catch (error) {
       if (error instanceof NFCAgentError) {

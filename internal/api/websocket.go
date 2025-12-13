@@ -252,6 +252,10 @@ func (c *WSClient) handleMessage(msg WSMessage) {
 		c.handleReadMifareBlock(msg.ID, msg.Payload)
 	case "write_mifare_block":
 		c.handleWriteMifareBlock(msg.ID, msg.Payload)
+	case "read_ultralight_page":
+		c.handleReadUltralightPage(msg.ID, msg.Payload)
+	case "write_ultralight_page":
+		c.handleWriteUltralightPage(msg.ID, msg.Payload)
 	default:
 		logging.Warn(logging.CatWebSocket, "Unknown message type", map[string]any{
 			"type": msg.Type,
@@ -774,5 +778,81 @@ func (c *WSClient) handleWriteMifareBlock(id string, payload json.RawMessage) {
 	c.sendResponse(id, "mifare_write_success", map[string]interface{}{
 		"success": true,
 		"block":   req.Block,
+	})
+}
+
+func (c *WSClient) handleReadUltralightPage(id string, payload json.RawMessage) {
+	var req struct {
+		ReaderIndex int    `json:"readerIndex"`
+		Page        int    `json:"page"`
+		Password    string `json:"password"` // Optional, hex string, 8 chars = 4 bytes
+	}
+	if err := json.Unmarshal(payload, &req); err != nil {
+		c.sendError(id, "invalid payload")
+		return
+	}
+
+	readers := core.ListReaders()
+	if req.ReaderIndex < 0 || req.ReaderIndex >= len(readers) {
+		c.sendError(id, "reader index out of range")
+		return
+	}
+
+	password, err := parseUltralightPassword(req.Password)
+	if err != nil {
+		c.sendError(id, err.Error())
+		return
+	}
+
+	data, err := core.ReadUltralightPage(readers[req.ReaderIndex].Name, req.Page, password)
+	if err != nil {
+		c.sendError(id, err.Error())
+		return
+	}
+
+	c.sendResponse(id, "ultralight_page", map[string]interface{}{
+		"page": req.Page,
+		"data": hex.EncodeToString(data),
+	})
+}
+
+func (c *WSClient) handleWriteUltralightPage(id string, payload json.RawMessage) {
+	var req struct {
+		ReaderIndex int    `json:"readerIndex"`
+		Page        int    `json:"page"`
+		Data        string `json:"data"`     // Hex string, 8 chars = 4 bytes
+		Password    string `json:"password"` // Optional, hex string, 8 chars = 4 bytes
+	}
+	if err := json.Unmarshal(payload, &req); err != nil {
+		c.sendError(id, "invalid payload")
+		return
+	}
+
+	readers := core.ListReaders()
+	if req.ReaderIndex < 0 || req.ReaderIndex >= len(readers) {
+		c.sendError(id, "reader index out of range")
+		return
+	}
+
+	data, err := hex.DecodeString(req.Data)
+	if err != nil || len(data) != 4 {
+		c.sendError(id, "invalid data (must be 8 hex characters for 4 bytes)")
+		return
+	}
+
+	password, err := parseUltralightPassword(req.Password)
+	if err != nil {
+		c.sendError(id, err.Error())
+		return
+	}
+
+	if err := core.WriteUltralightPage(readers[req.ReaderIndex].Name, req.Page, data, password); err != nil {
+		c.sendError(id, err.Error())
+		return
+	}
+
+	c.sendResponse(id, "ultralight_write_success", map[string]interface{}{
+		"success": true,
+		"page":    req.Page,
 	})
 }

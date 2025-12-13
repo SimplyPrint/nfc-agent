@@ -2041,3 +2041,126 @@ func WriteMifareBlock(readerName string, block int, data []byte, key []byte, key
 
 	return nil
 }
+
+// ReadUltralightPage reads a 4-byte page from a MIFARE Ultralight card.
+// page: Page number (0-255, actual range depends on card variant)
+// password: Optional 4-byte password for EV1 variants (nil = no auth)
+// Returns 4 bytes of page data.
+func ReadUltralightPage(readerName string, page int, password []byte) ([]byte, error) {
+	if page < 0 || page > 255 {
+		return nil, fmt.Errorf("invalid page number: %d (must be 0-255)", page)
+	}
+
+	ctx, err := scard.EstablishContext()
+	if err != nil {
+		return nil, fmt.Errorf("failed to establish context: %w", err)
+	}
+	defer ctx.Release()
+
+	card, err := ctx.Connect(readerName, scard.ShareShared, scard.ProtocolAny)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to reader: %w", err)
+	}
+	defer card.Disconnect(scard.LeaveCard)
+
+	// Authenticate with password if provided (for Ultralight EV1)
+	if len(password) > 0 {
+		if err := authenticateUltralight(card, password); err != nil {
+			return nil, err
+		}
+	}
+
+	// Read page: FF B0 00 [page] 10 (reads 16 bytes = 4 pages, we take first 4)
+	readCmd := []byte{0xFF, 0xB0, 0x00, byte(page), 0x10}
+	rsp, err := card.Transmit(readCmd)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read page %d: %w", page, err)
+	}
+	if len(rsp) < 6 || rsp[len(rsp)-2] != 0x90 {
+		return nil, fmt.Errorf("read failed for page %d: status %02X %02X", page, rsp[len(rsp)-2], rsp[len(rsp)-1])
+	}
+
+	logging.Info(logging.CatCard, "Ultralight page read", map[string]any{
+		"page": page,
+		"data": hex.EncodeToString(rsp[:4]),
+	})
+
+	return rsp[:4], nil
+}
+
+// WriteUltralightPage writes 4 bytes to a MIFARE Ultralight page.
+// page: Page number to write (minimum 4 for user data to protect system pages)
+// data: Exactly 4 bytes to write
+// password: Optional 4-byte password for EV1 variants (nil = no auth)
+func WriteUltralightPage(readerName string, page int, data []byte, password []byte) error {
+	if page < 0 || page > 255 {
+		return fmt.Errorf("invalid page number: %d (must be 0-255)", page)
+	}
+	if page < 4 {
+		return fmt.Errorf("cannot write to system pages 0-3 (use page 4 or higher for user data)")
+	}
+	if len(data) != 4 {
+		return fmt.Errorf("data must be exactly 4 bytes, got %d", len(data))
+	}
+
+	ctx, err := scard.EstablishContext()
+	if err != nil {
+		return fmt.Errorf("failed to establish context: %w", err)
+	}
+	defer ctx.Release()
+
+	card, err := ctx.Connect(readerName, scard.ShareShared, scard.ProtocolAny)
+	if err != nil {
+		return fmt.Errorf("failed to connect to reader: %w", err)
+	}
+	defer card.Disconnect(scard.LeaveCard)
+
+	// Authenticate with password if provided (for Ultralight EV1)
+	if len(password) > 0 {
+		if err := authenticateUltralight(card, password); err != nil {
+			return err
+		}
+	}
+
+	// Write page: FF D6 00 [page] 04 [4-byte data]
+	writeCmd := []byte{0xFF, 0xD6, 0x00, byte(page), 0x04}
+	writeCmd = append(writeCmd, data...)
+	rsp, err := card.Transmit(writeCmd)
+	if err != nil {
+		return fmt.Errorf("failed to write page %d: %w", page, err)
+	}
+	if len(rsp) < 2 || rsp[len(rsp)-2] != 0x90 {
+		return fmt.Errorf("write failed for page %d: status %02X %02X", page, rsp[len(rsp)-2], rsp[len(rsp)-1])
+	}
+
+	logging.Info(logging.CatCard, "Ultralight page written", map[string]any{
+		"page": page,
+		"data": hex.EncodeToString(data),
+	})
+
+	return nil
+}
+
+// authenticateUltralight performs PWD_AUTH on Ultralight EV1 cards.
+// password must be exactly 4 bytes.
+func authenticateUltralight(card *scard.Card, password []byte) error {
+	if len(password) != 4 {
+		return fmt.Errorf("password must be exactly 4 bytes, got %d", len(password))
+	}
+
+	// PWD_AUTH command via pseudo-APDU: FF 00 00 00 07 D4 42 1B [4-byte password]
+	authCmd := []byte{0xFF, 0x00, 0x00, 0x00, 0x07, 0xD4, 0x42, 0x1B}
+	authCmd = append(authCmd, password...)
+	rsp, err := card.Transmit(authCmd)
+	if err != nil {
+		return fmt.Errorf("authentication failed: %w", err)
+	}
+
+	// Check for successful response (D5 43 00 + PACK bytes + 90 00)
+	if len(rsp) < 2 || rsp[len(rsp)-2] != 0x90 {
+		return fmt.Errorf("authentication failed: wrong password or unsupported card")
+	}
+
+	logging.Debug(logging.CatCard, "Ultralight authenticated", nil)
+	return nil
+}

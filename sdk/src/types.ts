@@ -128,7 +128,9 @@ export type WSMessageType =
   | 'version'
   | 'health'
   | 'read_mifare_block'
-  | 'write_mifare_block';
+  | 'write_mifare_block'
+  | 'read_ultralight_page'
+  | 'write_ultralight_page';
 
 /**
  * WebSocket event types (server push)
@@ -339,4 +341,55 @@ export interface WriteMifareBlockPayload {
   data: string;
   key?: string;
   keyType?: MifareKeyType;
+}
+
+// ============================================================================
+// MIFARE Ultralight Types
+// ============================================================================
+
+/**
+ * Response from reading a MIFARE Ultralight page
+ */
+export interface UltralightPageData {
+  /** Page number that was read */
+  page: number;
+  /** Page data as hex string (8 characters = 4 bytes) */
+  data: string;
+}
+
+/**
+ * Options for reading a MIFARE Ultralight page
+ */
+export interface UltralightReadOptions {
+  /** Authentication password as hex string (8 characters = 4 bytes) for EV1 cards. Optional. */
+  password?: string;
+}
+
+/**
+ * Options for writing a MIFARE Ultralight page
+ */
+export interface UltralightWriteOptions {
+  /** Page data as hex string (8 characters = 4 bytes) */
+  data: string;
+  /** Authentication password as hex string (8 characters = 4 bytes) for EV1 cards. Optional. */
+  password?: string;
+}
+
+/**
+ * Payload for read_ultralight_page WebSocket request
+ */
+export interface ReadUltralightPagePayload {
+  readerIndex: number;
+  page: number;
+  password?: string;
+}
+
+/**
+ * Payload for write_ultralight_page WebSocket request
+ */
+export interface WriteUltralightPagePayload {
+  readerIndex: number;
+  page: number;
+  data: string;
+  password?: string;
 }
