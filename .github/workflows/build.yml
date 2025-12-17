@@ -405,7 +405,15 @@ jobs:
       - name: Publish to GitHub Packages
         if: steps.sdk-changes.outputs.changed == 'true'
         working-directory: sdk
-        run: npm publish
+        run: |
+          npm publish 2>&1 | tee publish.log || {
+            if grep -q "Cannot publish over existing version" publish.log; then
+              echo "Version already published by sdk-release workflow, skipping"
+            else
+              cat publish.log
+              exit 1
+            fi
+          }
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
