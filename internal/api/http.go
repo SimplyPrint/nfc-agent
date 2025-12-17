@@ -910,12 +910,12 @@ func parseMifareKeyType(kt string) byte {
 // POST /v1/readers/{n}/mifare/batch - Write multiple blocks in a single session
 // POST /v1/readers/{n}/mifare/derive-key - Derive key from UID via AES
 // POST /v1/readers/{n}/mifare/aes-write/{block} - AES encrypt and write block
-// POST /v1/readers/{n}/mifare/update-trailer/{block} - Update sector trailer keys
+// POST /v1/readers/{n}/mifare/sector-trailer/{block} - Write sector trailer with keys and access bits
 func handleMifareBlock(w http.ResponseWriter, r *http.Request, readerName string, parts []string) {
 	// Expect path: /v1/readers/{n}/mifare/{block or operation}
 	if len(parts) < 5 {
 		respondJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "missing block number or operation (use /mifare/{block}, /mifare/batch, /mifare/derive-key, /mifare/aes-write/{block}, or /mifare/update-trailer/{block})",
+			"error": "missing block number or operation (use /mifare/{block}, /mifare/batch, /mifare/derive-key, /mifare/aes-write/{block}, or /mifare/sector-trailer/{block})",
 		})
 		return
 	}
@@ -931,8 +931,8 @@ func handleMifareBlock(w http.ResponseWriter, r *http.Request, readerName string
 	case "aes-write":
 		handleMifareAESWrite(w, r, readerName, parts)
 		return
-	case "update-trailer":
-		handleMifareUpdateTrailer(w, r, readerName, parts)
+	case "sector-trailer":
+		handleMifareSectorTrailer(w, r, readerName, parts)
 		return
 	}
 
@@ -1410,18 +1410,18 @@ func handleMifareAESWrite(w http.ResponseWriter, r *http.Request, readerName str
 	})
 }
 
-// handleMifareUpdateTrailer updates a MIFARE Classic sector trailer with new keys
-// POST /v1/readers/{n}/mifare/update-trailer/{block}
-func handleMifareUpdateTrailer(w http.ResponseWriter, r *http.Request, readerName string, parts []string) {
+// handleMifareSectorTrailer writes a MIFARE Classic sector trailer with keys and access bits
+// POST /v1/readers/{n}/mifare/sector-trailer/{block}
+func handleMifareSectorTrailer(w http.ResponseWriter, r *http.Request, readerName string, parts []string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Expect path: /v1/readers/{n}/mifare/update-trailer/{block}
+	// Expect path: /v1/readers/{n}/mifare/sector-trailer/{block}
 	if len(parts) < 6 {
 		respondJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "missing block number (use /mifare/update-trailer/{block})",
+			"error": "missing block number (use /mifare/sector-trailer/{block})",
 		})
 		return
 	}
@@ -1437,6 +1437,7 @@ func handleMifareUpdateTrailer(w http.ResponseWriter, r *http.Request, readerNam
 	var req struct {
 		KeyA        string `json:"keyA"`        // New Key A, 12 hex chars = 6 bytes
 		KeyB        string `json:"keyB"`        // New Key B, 12 hex chars = 6 bytes
+		AccessBits  string `json:"accessBits"`  // Access bits, 6 or 8 hex chars (optional, preserves existing if empty)
 		AuthKey     string `json:"authKey"`     // Key for authentication, 12 hex chars = 6 bytes
 		AuthKeyType string `json:"authKeyType"` // "A" or "B"
 	}
@@ -1464,6 +1465,18 @@ func handleMifareUpdateTrailer(w http.ResponseWriter, r *http.Request, readerNam
 		return
 	}
 
+	// Parse optional access bits (nil if empty, preserves existing)
+	var accessBits []byte
+	if req.AccessBits != "" {
+		accessBits, err = hex.DecodeString(req.AccessBits)
+		if err != nil || (len(accessBits) != 3 && len(accessBits) != 4) {
+			respondJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "invalid accessBits (must be 6 or 8 hex characters for 3 or 4 bytes)",
+			})
+			return
+		}
+	}
+
 	authKey, err := parseMifareKey(req.AuthKey)
 	if err != nil {
 		respondJSON(w, http.StatusBadRequest, map[string]string{
@@ -1473,7 +1486,7 @@ func handleMifareUpdateTrailer(w http.ResponseWriter, r *http.Request, readerNam
 	}
 	authKeyType := parseMifareKeyType(req.AuthKeyType)
 
-	if err := core.WriteSectorTrailer(readerName, blockNum, keyA, keyB, authKey, authKeyType); err != nil {
+	if err := core.WriteSectorTrailer(readerName, blockNum, keyA, keyB, accessBits, authKey, authKeyType); err != nil {
 		logging.Debug(logging.CatHTTP, "MIFARE update trailer failed", map[string]any{
 			"reader": readerName,
 			"block":  blockNum,

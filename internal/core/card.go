@@ -2673,7 +2673,11 @@ func AESEncryptAndWriteBlock(readerName string, block int, data, aesKey, authKey
 // keyB: New 6-byte Key B
 // authKey: 6-byte key for authentication to the sector
 // authKeyType: 'A' or 'B' (defaults to 'A')
-func WriteSectorTrailer(readerName string, block int, keyA, keyB, authKey []byte, authKeyType byte) error {
+// WriteSectorTrailer writes a MIFARE Classic sector trailer with new keys and optional access bits.
+// If accessBits is nil, the existing access bits are preserved.
+// If accessBits is 3 bytes, a 0x00 user data byte is appended.
+// If accessBits is 4 bytes, it's used as-is.
+func WriteSectorTrailer(readerName string, block int, keyA, keyB, accessBits, authKey []byte, authKeyType byte) error {
 	if !isSectorTrailer(block) {
 		return fmt.Errorf("block %d is not a sector trailer", block)
 	}
@@ -2682,6 +2686,9 @@ func WriteSectorTrailer(readerName string, block int, keyA, keyB, authKey []byte
 	}
 	if len(keyB) != 6 {
 		return fmt.Errorf("keyB must be 6 bytes, got %d", len(keyB))
+	}
+	if accessBits != nil && len(accessBits) != 3 && len(accessBits) != 4 {
+		return fmt.Errorf("accessBits must be 3 or 4 bytes, got %d", len(accessBits))
 	}
 
 	ctx, err := scard.EstablishContext()
@@ -2707,30 +2714,41 @@ func WriteSectorTrailer(readerName string, block int, keyA, keyB, authKey []byte
 		return fmt.Errorf("authentication failed: %w", err)
 	}
 
-	// Read current sector trailer to get access bits
-	readCmd := []byte{0xFF, 0xB0, 0x00, byte(block), 0x10}
-	rsp, err := card.Transmit(readCmd)
-	if err != nil {
-		return fmt.Errorf("failed to read sector trailer: %w", err)
+	// Determine access bits to use
+	var finalAccessBits []byte
+	if accessBits != nil {
+		// Use provided access bits
+		if len(accessBits) == 3 {
+			// Append 0x00 as user data byte
+			finalAccessBits = append(accessBits, 0x00)
+		} else {
+			finalAccessBits = accessBits
+		}
+	} else {
+		// Read current sector trailer to preserve existing access bits
+		readCmd := []byte{0xFF, 0xB0, 0x00, byte(block), 0x10}
+		rsp, err := card.Transmit(readCmd)
+		if err != nil {
+			return fmt.Errorf("failed to read sector trailer: %w", err)
+		}
+		if len(rsp) < 18 || rsp[len(rsp)-2] != 0x90 {
+			return fmt.Errorf("read failed for sector trailer: status %02X %02X", rsp[len(rsp)-2], rsp[len(rsp)-1])
+		}
+		// Extract access bits (bytes 6-9 of the 16-byte sector trailer)
+		// Sector trailer format: [KeyA (6)] [Access bits (4)] [KeyB (6)]
+		finalAccessBits = rsp[6:10]
 	}
-	if len(rsp) < 18 || rsp[len(rsp)-2] != 0x90 {
-		return fmt.Errorf("read failed for sector trailer: status %02X %02X", rsp[len(rsp)-2], rsp[len(rsp)-1])
-	}
-
-	// Extract access bits (bytes 6-9 of the 16-byte sector trailer)
-	// Sector trailer format: [KeyA (6)] [Access bits (4)] [KeyB (6)]
-	accessBits := rsp[6:10]
 
 	// Build new sector trailer: [newKeyA (6)] + [accessBits (4)] + [newKeyB (6)]
 	newTrailer := make([]byte, 16)
 	copy(newTrailer[0:6], keyA)
-	copy(newTrailer[6:10], accessBits)
+	copy(newTrailer[6:10], finalAccessBits)
 	copy(newTrailer[10:16], keyB)
 
 	// Write new sector trailer
 	writeCmd := []byte{0xFF, 0xD6, 0x00, byte(block), 0x10}
 	writeCmd = append(writeCmd, newTrailer...)
-	rsp, err = card.Transmit(writeCmd)
+	rsp, err := card.Transmit(writeCmd)
 	if err != nil {
 		return fmt.Errorf("failed to write sector trailer: %w", err)
 	}
@@ -2742,7 +2760,7 @@ func WriteSectorTrailer(readerName string, block int, keyA, keyB, authKey []byte
 		"block":      block,
 		"keyA":       hex.EncodeToString(keyA),
 		"keyB":       hex.EncodeToString(keyB),
-		"accessBits": hex.EncodeToString(accessBits),
+		"accessBits": hex.EncodeToString(finalAccessBits),
 	})
 
 	return nil

@@ -265,8 +265,8 @@ func (c *WSClient) handleMessage(msg WSMessage) {
 		c.handleDeriveUIDKeyAES(msg.ID, msg.Payload)
 	case "aes_encrypt_and_write_block":
 		c.handleAESEncryptAndWriteBlock(msg.ID, msg.Payload)
-	case "update_sector_trailer_keys":
-		c.handleUpdateSectorTrailerKeys(msg.ID, msg.Payload)
+	case "write_mifare_sector_trailer":
+		c.handleWriteMifareSectorTrailer(msg.ID, msg.Payload)
 	default:
 		logging.Warn(logging.CatWebSocket, "Unknown message type", map[string]any{
 			"type": msg.Type,
@@ -1085,12 +1085,13 @@ func (c *WSClient) handleAESEncryptAndWriteBlock(id string, payload json.RawMess
 	})
 }
 
-func (c *WSClient) handleUpdateSectorTrailerKeys(id string, payload json.RawMessage) {
+func (c *WSClient) handleWriteMifareSectorTrailer(id string, payload json.RawMessage) {
 	var req struct {
 		ReaderIndex int    `json:"readerIndex"`
 		Block       int    `json:"block"`       // Sector trailer block number
 		KeyA        string `json:"keyA"`        // New Key A, 12 hex chars = 6 bytes
 		KeyB        string `json:"keyB"`        // New Key B, 12 hex chars = 6 bytes
+		AccessBits  string `json:"accessBits"`  // Access bits, 6 or 8 hex chars (optional, preserves existing if empty)
 		AuthKey     string `json:"authKey"`     // Key for authentication, 12 hex chars = 6 bytes
 		AuthKeyType string `json:"authKeyType"` // "A" or "B"
 	}
@@ -1117,6 +1118,16 @@ func (c *WSClient) handleUpdateSectorTrailerKeys(id string, payload json.RawMess
 		return
 	}
 
+	// Parse optional access bits (nil if empty, preserves existing)
+	var accessBits []byte
+	if req.AccessBits != "" {
+		accessBits, err = hex.DecodeString(req.AccessBits)
+		if err != nil || (len(accessBits) != 3 && len(accessBits) != 4) {
+			c.sendError(id, "invalid accessBits (must be 6 or 8 hex characters for 3 or 4 bytes)")
+			return
+		}
+	}
+
 	authKey, err := parseMifareKey(req.AuthKey)
 	if err != nil {
 		c.sendError(id, err.Error())
@@ -1124,12 +1135,12 @@ func (c *WSClient) handleUpdateSectorTrailerKeys(id string, payload json.RawMess
 	}
 	authKeyType := parseMifareKeyType(req.AuthKeyType)
 
-	if err := core.WriteSectorTrailer(readers[req.ReaderIndex].Name, req.Block, keyA, keyB, authKey, authKeyType); err != nil {
+	if err := core.WriteSectorTrailer(readers[req.ReaderIndex].Name, req.Block, keyA, keyB, accessBits, authKey, authKeyType); err != nil {
 		c.sendError(id, err.Error())
 		return
 	}
 
-	c.sendResponse(id, "sector_trailer_updated", map[string]interface{}{
+	c.sendResponse(id, "mifare_sector_trailer_written", map[string]interface{}{
 		"success": true,
 		"block":   req.Block,
 	})

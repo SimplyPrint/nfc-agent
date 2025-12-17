@@ -135,7 +135,7 @@ export type WSMessageType =
   | 'write_ultralight_pages'
   | 'derive_uid_key_aes'
   | 'aes_encrypt_and_write_block'
-  | 'update_sector_trailer_keys';
+  | 'write_mifare_sector_trailer';
 
 /**
  * WebSocket event types (server push)
@@ -543,13 +543,15 @@ export interface AESEncryptWriteOptions {
 }
 
 /**
- * Options for updating sector trailer keys
+ * Options for writing a MIFARE Classic sector trailer
  */
-export interface UpdateSectorTrailerOptions {
+export interface WriteMifareSectorTrailerOptions {
   /** New Key A as hex string (12 characters = 6 bytes) */
   keyA: string;
   /** New Key B as hex string (12 characters = 6 bytes) */
   keyB: string;
+  /** Access bits as hex string (6 or 8 characters = 3 or 4 bytes). If omitted, existing access bits are preserved. */
+  accessBits?: string;
   /** Authentication key as hex string (12 characters = 6 bytes) */
   authKey: string;
   /** Key type for authentication: 'A' or 'B' (default: 'A') */
@@ -577,13 +579,14 @@ export interface AESEncryptWritePayload {
 }
 
 /**
- * Payload for update_sector_trailer_keys WebSocket request
+ * Payload for write_mifare_sector_trailer WebSocket request
  */
-export interface UpdateSectorTrailerPayload {
+export interface WriteMifareSectorTrailerPayload {
   readerIndex: number;
   block: number;
   keyA: string;
   keyB: string;
+  accessBits?: string;
   authKey: string;
   authKeyType?: MifareKeyType;
 }

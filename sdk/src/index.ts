@@ -59,7 +59,7 @@ export type {
   DerivedKeyData,
   DeriveUIDKeyOptions,
   AESEncryptWriteOptions,
-  UpdateSectorTrailerOptions,
+  WriteMifareSectorTrailerOptions,
 } from './types.js';
 
 // Convenience aliases for CDN/browser usage

@@ -284,10 +284,11 @@ await ws.aesEncryptAndWriteBlock(0, 4, {
   authKeyType: 'A'
 });
 
-// Update sector trailer keys (preserves access bits)
-await ws.updateSectorTrailerKeys(0, 7, {
-  keyA: derived.key,      // New Key A
-  keyB: derived.key,      // New Key B
+// Write sector trailer with new keys and optional access bits
+await ws.writeMifareSectorTrailer(0, 7, {
+  keyA: derived.key,       // New Key A
+  keyB: derived.key,       // New Key B
+  accessBits: 'FF0780',    // Optional - preserves existing if omitted
   authKey: 'FFFFFFFFFFFF', // Current auth key
   authKeyType: 'A'
 });
@@ -298,6 +299,7 @@ await ws.updateSectorTrailerKeys(0, 7, {
 - The derived key is 6 bytes (12 hex characters) - suitable for MIFARE authentication
 - Data is encrypted before being written to the card
 - Sector trailers are at blocks 3, 7, 11, 15, etc. (for 1K cards)
+- `FF0780` is the standard "transport" access bits configuration
 
 ---
 
@@ -405,7 +407,7 @@ poller.start();
 | `writeUltralightPages(reader, options)` | Write multiple MIFARE Ultralight pages |
 | `deriveUIDKeyAES(reader, options)` | Derive 6-byte key from UID via AES |
 | `aesEncryptAndWriteBlock(reader, block, options)` | AES encrypt + write block |
-| `updateSectorTrailerKeys(reader, block, options)` | Update sector trailer keys |
+| `writeMifareSectorTrailer(reader, block, options)` | Write sector trailer with keys and access bits |
 
 #### WebSocket Events
 
@@ -435,7 +437,7 @@ poller.start();
 | `writeUltralightPages(reader, options)` | Write multiple MIFARE Ultralight pages |
 | `deriveUIDKeyAES(reader, options)` | Derive 6-byte key from UID via AES |
 | `aesEncryptAndWriteBlock(reader, block, options)` | AES encrypt + write block |
-| `updateSectorTrailerKeys(reader, block, options)` | Update sector trailer keys |
+| `writeMifareSectorTrailer(reader, block, options)` | Write sector trailer with keys and access bits |
 | `pollCard(reader, options)` | Create a CardPoller |
 
 ### Types
@@ -556,10 +558,11 @@ interface AESEncryptWriteOptions {
   authKeyType?: MifareKeyType;
 }
 
-interface UpdateSectorTrailerOptions {
-  keyA: string;       // 12 hex chars = 6 bytes
-  keyB: string;       // 12 hex chars = 6 bytes
-  authKey: string;    // 12 hex chars = 6 bytes
+interface WriteMifareSectorTrailerOptions {
+  keyA: string;        // 12 hex chars = 6 bytes
+  keyB: string;        // 12 hex chars = 6 bytes
+  accessBits?: string; // 6 or 8 hex chars (optional, preserves existing if omitted)
+  authKey: string;     // 12 hex chars = 6 bytes
   authKeyType?: MifareKeyType;
 }
 ```

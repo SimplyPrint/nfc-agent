@@ -23,7 +23,7 @@ import type {
   DerivedKeyData,
   DeriveUIDKeyOptions,
   AESEncryptWriteOptions,
-  UpdateSectorTrailerOptions,
+  WriteMifareSectorTrailerOptions,
 } from './types.js';
 import { ConnectionError, CardError, NFCAgentError } from './errors.js';
 
@@ -672,22 +672,23 @@ export class NFCAgentWebSocket {
   }
 
   /**
-   * Update a MIFARE Classic sector trailer with new keys while preserving access bits.
+   * Write a MIFARE Classic sector trailer with new keys and optional access bits.
    * @param readerIndex - Index of the reader (0-based)
    * @param block - Sector trailer block number (3, 7, 11, 15, ... for 1K)
-   * @param options - Options including new keys and authentication key
+   * @param options - Options including new keys, optional access bits, and authentication key
    */
-  async updateSectorTrailerKeys(
+  async writeMifareSectorTrailer(
     readerIndex: number,
     block: number,
-    options: UpdateSectorTrailerOptions
+    options: WriteMifareSectorTrailerOptions
   ): Promise<void> {
     try {
-      await this.request('update_sector_trailer_keys', {
+      await this.request('write_mifare_sector_trailer', {
         readerIndex,
         block,
         keyA: options.keyA,
         keyB: options.keyB,
+        accessBits: options.accessBits,
         authKey: options.authKey,
         authKeyType: options.authKeyType,
       });
