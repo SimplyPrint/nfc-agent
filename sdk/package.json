@@ -1,6 +1,6 @@
 {
   "name": "@simplyprint/nfc-agent",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "description": "JavaScript SDK for NFC Agent - read and write NFC cards via local nfc-agent server",
   "type": "module",
   "main": "./dist/index.cjs",
