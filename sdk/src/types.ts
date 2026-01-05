@@ -166,7 +166,7 @@ export interface WSResponse<T = unknown> {
  * Configuration options for the WebSocket client
  */
 export interface NFCAgentWSOptions {
-  /** WebSocket URL (default: "ws://127.0.0.1:32145/v1/ws") */
+  /** WebSocket URL (default: "ws://127.0.0.1:32145/v1/ws" or "wss://..." if secure is true) */
   url?: string;
   /** Request timeout in milliseconds (default: 5000) */
   timeout?: number;
@@ -174,6 +174,13 @@ export interface NFCAgentWSOptions {
   autoReconnect?: boolean;
   /** Reconnect interval in milliseconds (default: 3000) */
   reconnectInterval?: number;
+  /**
+   * Use secure WebSocket (wss://) instead of ws://.
+   * Required for Safari when page is served over HTTPS.
+   * User must first visit https://127.0.0.1:32145/ and accept the self-signed certificate.
+   * (default: false)
+   */
+  secure?: boolean;
 }
 
 /**

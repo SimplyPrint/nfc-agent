@@ -28,6 +28,7 @@ import type {
 import { ConnectionError, CardError, NFCAgentError } from './errors.js';
 
 const DEFAULT_WS_URL = 'ws://127.0.0.1:32145/v1/ws';
+const DEFAULT_WSS_URL = 'wss://127.0.0.1:32145/v1/ws';
 const DEFAULT_TIMEOUT = 5000;
 const DEFAULT_RECONNECT_INTERVAL = 3000;
 
@@ -81,7 +82,8 @@ export class NFCAgentWebSocket {
    * @param options - Configuration options
    */
   constructor(options: NFCAgentWSOptions = {}) {
-    this.url = options.url ?? DEFAULT_WS_URL;
+    const defaultUrl = options.secure ? DEFAULT_WSS_URL : DEFAULT_WS_URL;
+    this.url = options.url ?? defaultUrl;
     this.timeout = options.timeout ?? DEFAULT_TIMEOUT;
     this.autoReconnect = options.autoReconnect ?? true;
     this.reconnectInterval = options.reconnectInterval ?? DEFAULT_RECONNECT_INTERVAL;

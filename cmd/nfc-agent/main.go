@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/SimplyPrint/nfc-agent/internal/api"
+	"github.com/SimplyPrint/nfc-agent/internal/certs"
 	"github.com/SimplyPrint/nfc-agent/internal/config"
 	"github.com/SimplyPrint/nfc-agent/internal/logging"
 	"github.com/SimplyPrint/nfc-agent/internal/service"
@@ -38,8 +40,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Flags:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nEnvironment variables:\n")
-		fmt.Fprintf(os.Stderr, "  NFC_AGENT_PORT    Port to listen on (default: 32145)\n")
-		fmt.Fprintf(os.Stderr, "  NFC_AGENT_HOST    Host to bind to (default: 127.0.0.1)\n")
+		fmt.Fprintf(os.Stderr, "  NFC_AGENT_PORT  Port to listen on (default: 32145)\n")
+		fmt.Fprintf(os.Stderr, "  NFC_AGENT_HOST  Host to bind to (default: 127.0.0.1)\n")
 	}
 
 	flag.Parse()
@@ -150,15 +152,44 @@ func run(cfg *config.Config, headless bool) {
 
 	addr := cfg.Address()
 
+	// Load or generate TLS certificates
+	tlsConfig, err := certs.LoadOrGenerate()
+	if err != nil {
+		log.Printf("Warning: Failed to initialize TLS: %v (HTTPS disabled)", err)
+		tlsConfig = nil
+	}
+
 	// Server start function
 	startServer := func() {
 		log.Printf("nfc-agent %s listening on http://%s\n", api.Version, addr)
 		log.Printf("WebSocket available at ws://%s/v1/ws\n", addr)
+
+		if tlsConfig != nil {
+			log.Printf("HTTPS also available at https://%s\n", addr)
+			log.Printf("Secure WebSocket also available at wss://%s/v1/ws\n", addr)
+			log.Printf("TLS certificate: %s\n", certs.GetCertPath())
+		}
+
 		logging.Info(logging.CatSystem, "Server started", map[string]any{
-			"address": addr,
+			"address":    addr,
+			"tlsEnabled": tlsConfig != nil,
 		})
 
-		if err := http.ListenAndServe(addr, mux); err != nil {
+		// Create base listener
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			log.Fatalf("failed to listen: %v", err)
+		}
+
+		// If TLS is configured, wrap with mux listener for HTTP/HTTPS on same port
+		var listener net.Listener = ln
+		if tlsConfig != nil {
+			listener = certs.NewMuxListener(ln, tlsConfig)
+		}
+
+		// Start server (blocks)
+		server := &http.Server{Handler: mux}
+		if err := server.Serve(listener); err != nil {
 			log.Fatalf("server error: %v", err)
 		}
 	}
