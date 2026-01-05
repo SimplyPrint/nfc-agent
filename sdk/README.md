@@ -31,8 +31,12 @@ npm install @simplyprint/nfc-agent
 
 The [nfc-agent](https://github.com/SimplyPrint/nfc-agent) must be running on the local machine.
 
-- REST API: `http://127.0.0.1:32145`
+- HTTP/REST API: `http://127.0.0.1:32145`
+- HTTPS/REST API: `https://127.0.0.1:32145`
 - WebSocket: `ws://127.0.0.1:32145/v1/ws`
+- Secure WebSocket: `wss://127.0.0.1:32145/v1/ws`
+
+Both HTTP and HTTPS are served on the same port. The agent auto-generates a self-signed TLS certificate on first run.
 
 ## Quick Start
 
@@ -84,6 +88,7 @@ const ws = new NFCAgentWebSocket({
   timeout: 5000,                       // request timeout (default)
   autoReconnect: true,                 // auto-reconnect on disconnect (default)
   reconnectInterval: 3000,             // reconnect delay (default)
+  secure: false,                       // use wss:// instead of ws:// (default: false)
 });
 
 await ws.connect();
@@ -96,6 +101,19 @@ ws.on('error', (err) => console.error('Error:', err));
 // Disconnect when done
 ws.disconnect();
 ```
+
+#### Using Secure WebSocket (Safari / HTTPS)
+
+Safari blocks insecure WebSocket connections (`ws://`) from pages served over HTTPS. To work around this, use the `secure` option to connect via `wss://`:
+
+```typescript
+const ws = new NFCAgentWebSocket({ secure: true });
+await ws.connect();
+```
+
+**Note:** The NFC Agent uses a **self-signed certificate** generated on first run. This provides encryption for the connection but browsers will show a certificate warning since it's not signed by a trusted CA. This is expected for a localhost-only service.
+
+**Setup:** Before using secure WebSocket, the user must first visit `https://127.0.0.1:32145/` in their browser and accept the certificate warning. This only needs to be done once per browser.
 
 ### Reading & Writing Cards
 
