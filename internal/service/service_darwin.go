@@ -24,6 +24,10 @@ const (
     </array>
     <key>RunAtLoad</key>
     <true/>
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
+    <key>ProcessType</key>
+    <string>Interactive</string>
     <key>KeepAlive</key>
     <dict>
         <key>SuccessfulExit</key>

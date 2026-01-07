@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/SimplyPrint/nfc-agent/internal/api"
 	"github.com/SimplyPrint/nfc-agent/internal/core"
@@ -47,6 +48,11 @@ func (t *TrayApp) Run() {
 // RunWithServer runs the tray on the main thread and starts the server in a goroutine.
 // This function BLOCKS - it must be called from the main goroutine on macOS.
 func (t *TrayApp) RunWithServer(serverStart func()) {
+	// Wait for GUI/WindowServer to be ready (handles macOS startup race condition)
+	if !WaitForGUI(30*time.Second, 1*time.Second) {
+		log.Println("Warning: GUI may not be ready, systray initialization may fail")
+	}
+
 	systray.Run(func() {
 		t.onReady()
 		if serverStart != nil {
