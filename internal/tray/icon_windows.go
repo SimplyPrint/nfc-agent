@@ -2,6 +2,10 @@
 
 package tray
 
+// templateIconData is unused on Windows (SetTemplateIcon falls back to regular icon)
+// but must be defined for cross-platform compilation
+var templateIconData []byte
+
 // iconData contains the system tray icon as ICO bytes for Windows
 var iconData = []byte{
 
