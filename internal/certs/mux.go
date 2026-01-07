@@ -3,7 +3,19 @@ package certs
 import (
 	"crypto/tls"
 	"net"
+	"time"
 )
+
+// tempError wraps an error to be treated as temporary by http.Server.
+// This prevents the server from exiting when a connection fails during
+// protocol detection (e.g., client disconnects before sending data).
+type tempError struct {
+	err error
+}
+
+func (e *tempError) Error() string   { return e.err.Error() }
+func (e *tempError) Timeout() bool   { return false }
+func (e *tempError) Temporary() bool { return true }
 
 // MuxListener wraps a net.Listener and routes connections to either
 // TLS or plain HTTP based on the first byte of the connection.
@@ -29,12 +41,20 @@ func (m *MuxListener) Accept() (net.Conn, error) {
 		return nil, err
 	}
 
+	// Set a deadline for the peek to avoid hanging on slow/malicious clients
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+
 	// Wrap connection to peek at first byte
 	pc := &peekConn{Conn: conn}
 	b, err := pc.peek()
+
+	// Clear the deadline for normal operation
+	conn.SetReadDeadline(time.Time{})
+
 	if err != nil {
 		conn.Close()
-		return nil, err
+		// Wrap as temporary error so http.Server retries instead of exiting
+		return nil, &tempError{err: err}
 	}
 
 	// TLS handshake starts with 0x16 (ContentType: Handshake)
