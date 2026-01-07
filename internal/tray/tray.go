@@ -62,8 +62,8 @@ func (t *TrayApp) RunWithServer(serverStart func()) {
 }
 
 func (t *TrayApp) onReady() {
-	// Set icon
-	systray.SetIcon(iconData)
+	// Set icon - use template icon for proper dark/light mode support on macOS
+	systray.SetTemplateIcon(templateIconData, iconData)
 	systray.SetTitle("") // Empty title for cleaner menu bar (macOS)
 	systray.SetTooltip("NFC Agent")
 
