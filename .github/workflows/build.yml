@@ -390,21 +390,21 @@ jobs:
 
       - name: Install dependencies and build
         if: steps.sdk-changes.outputs.changed == 'true'
-        working-directory: sdk
+        working-directory: sdk/javascript
         run: |
           npm ci
           npm run build
 
       - name: Update package version
         if: steps.sdk-changes.outputs.changed == 'true'
-        working-directory: sdk
+        working-directory: sdk/javascript
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       - name: Publish to GitHub Packages
         if: steps.sdk-changes.outputs.changed == 'true'
-        working-directory: sdk
+        working-directory: sdk/javascript
         run: |
           npm publish 2>&1 | tee publish.log || {
             if grep -q "Cannot publish over existing version" publish.log; then

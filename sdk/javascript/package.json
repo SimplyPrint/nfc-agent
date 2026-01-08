@@ -44,7 +44,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/SimplyPrint/nfc-agent.git",
-    "directory": "sdk"
+    "directory": "sdk/javascript"
   },
   "bugs": {
     "url": "https://github.com/SimplyPrint/nfc-agent/issues"

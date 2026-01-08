@@ -1,12 +1,12 @@
-name: SDK CI
+name: JavaScript SDK CI
 
 on:
   pull_request:
     paths:
-      - 'sdk/**'
+      - 'sdk/javascript/**'
   push:
     paths:
-      - 'sdk/**'
+      - 'sdk/javascript/**'
     branches-ignore:
       - main
 
@@ -26,17 +26,17 @@ jobs:
           node-version: ${{ matrix.node-version }}
 
       - name: Install dependencies
-        working-directory: ./sdk
+        working-directory: ./sdk/javascript
         run: npm ci
 
       - name: Type check
-        working-directory: ./sdk
+        working-directory: ./sdk/javascript
         run: npm run typecheck
 
       - name: Run tests
-        working-directory: ./sdk
+        working-directory: ./sdk/javascript
         run: npm test
 
       - name: Build
-        working-directory: ./sdk
+        working-directory: ./sdk/javascript
         run: npm run build
