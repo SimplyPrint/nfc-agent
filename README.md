@@ -31,7 +31,7 @@ NFC Agent provides a fully-featured HTTP/WebSocket API that you can use from any
 - **Security** - Password protection for NTAG chips, permanent card locking
 - **System Tray** - Native system tray integration with status indicator
 - **Auto-start** - Install as a system service for automatic startup
-- **JavaScript SDK** - Full-featured TypeScript SDK for browser and Node.js
+- **Official SDKs** - Full-featured SDKs for [JavaScript/TypeScript](sdk/javascript/) and [Python](sdk/python/)
 
 ## Supported Hardware
 
@@ -54,6 +54,37 @@ NFC Agent works with any **PC/SC compatible** contactless smart card reader. Tes
 - MIFARE Classic, Ultralight, DESFire
 - ISO 14443 Type A/B
 - FeliCa
+
+### Proxmark3 Support (Experimental)
+
+NFC Agent also supports the **[Proxmark3](https://github.com/RfidResearchGroup/proxmark3)** RFID research tool as an alternative reader. This is experimental and requires the Proxmark3 Iceman fork client to be installed.
+
+**Prerequisites:**
+1. Install the Proxmark3 Iceman fork: https://github.com/RfidResearchGroup/proxmark3
+2. Ensure `pm3` is in your PATH (test with `pm3 -c "hw version"`)
+
+**Enable Proxmark3 support:**
+```bash
+NFC_AGENT_PROXMARK3=1 nfc-agent
+```
+
+**Environment Variables:**
+
+| Variable | Description |
+|----------|-------------|
+| `NFC_AGENT_PROXMARK3` | Set to `1` to enable Proxmark3 detection |
+| `NFC_AGENT_PM3_PATH` | Custom path to `pm3` binary |
+| `NFC_AGENT_PM3_PORT` | Specific serial port (e.g., `/dev/ttyACM0`) |
+
+**Limitations:**
+- ~1-2 second latency per command (pm3 client startup overhead)
+- Polling frequency should be reduced for Proxmark3 readers
+- Not all operations are supported (write operations may be limited)
+
+**Troubleshooting:**
+- Ensure the Proxmark3 device is connected: `pm3 -c "hw version"`
+- Check serial port permissions on Linux: `sudo usermod -a -G dialout $USER`
+- If device not detected, specify the port: `NFC_AGENT_PM3_PORT=/dev/ttyACM0`
 
 ## Installation
 
@@ -160,6 +191,9 @@ Configure via environment variables:
 |----------|---------|-------------|
 | `NFC_AGENT_PORT` | `32145` | HTTP/WebSocket server port |
 | `NFC_AGENT_HOST` | `127.0.0.1` | Server bind address |
+| `NFC_AGENT_PROXMARK3` | `0` | Set to `1` to enable Proxmark3 support |
+| `NFC_AGENT_PM3_PATH` | `pm3` | Path to Proxmark3 client binary |
+| `NFC_AGENT_PM3_PORT` | (auto) | Specific serial port for Proxmark3 |
 
 ## API Overview
 
@@ -225,7 +259,7 @@ Connect to `ws://127.0.0.1:32145/v1/ws` for real-time card events.
 - `card_detected` - Card placed on reader
 - `card_removed` - Card removed from reader
 
-See the [SDK documentation](sdk/README.md) for detailed API reference.
+See the SDK documentation for detailed API reference: [JavaScript](sdk/javascript/README.md) | [Python](sdk/python/README.md)
 
 ## JavaScript SDK
 
@@ -263,7 +297,43 @@ await ws.writeCard(0, {
 });
 ```
 
-See the full [SDK documentation](sdk/README.md) for more examples.
+See the full [SDK documentation](sdk/javascript/README.md) for more examples.
+
+## Python SDK
+
+Install the official Python SDK:
+
+```bash
+pip install nfc-agent
+```
+
+### Quick Example
+
+```python
+import asyncio
+from nfc_agent import NFCClient, NFCWebSocket
+
+async def main():
+    # REST API
+    async with NFCClient() as client:
+        readers = await client.get_readers()
+        card = await client.read_card(0)
+        print(f"Card UID: {card.uid}")
+
+    # WebSocket for real-time events
+    async with NFCWebSocket() as ws:
+        await ws.subscribe(0)
+
+        @ws.on_card_detected
+        def handle_card(event):
+            print(f"Card: {event.card.uid}")
+
+        await asyncio.sleep(60)
+
+asyncio.run(main())
+```
+
+See the full [Python SDK documentation](sdk/python/README.md) for more examples.
 
 ## MIFARE Classic Raw Block Access
 
@@ -729,6 +799,6 @@ Built with care by [SimplyPrint](https://simplyprint.io) - Cloud-based 3D print 
 
 **Links:**
 - [GitHub Repository](https://github.com/SimplyPrint/nfc-agent)
-- [SDK Documentation](sdk/README.md)
+- [SDK Documentation](sdk/)
 - [SimplyPrint](https://simplyprint.io)
 - [Report Issues](https://github.com/SimplyPrint/nfc-agent/issues)
