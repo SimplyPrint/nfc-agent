@@ -1161,7 +1161,7 @@ func readNDEFData(card *scard.Card, cardInfo *Card) {
 				}
 			}
 		}
-	} else if cardInfo.Type == "ISO 15693" {
+	} else if cardInfo.Type == "ICode SLIX" {
 		// ISO 15693 (Type 5) tags: NDEF starts at block 1 (after CC at block 0)
 		maxBlocks := 79 // 80 blocks total, skip CC at block 0
 		for blockNum := 1; blockNum < 1+maxBlocks; blockNum++ {
