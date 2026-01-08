@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"time"
 )
 
 const (
@@ -12,8 +13,18 @@ const (
 
 // Config holds the application configuration.
 type Config struct {
-	Host string
-	Port int
+	Host      string
+	Port      int
+	Proxmark3 Proxmark3Config
+}
+
+// Proxmark3Config holds Proxmark3-specific configuration.
+type Proxmark3Config struct {
+	Enabled        bool          // Enable Proxmark3 support (NFC_AGENT_PROXMARK3=1)
+	Path           string        // Custom path to pm3 binary (NFC_AGENT_PM3_PATH)
+	Port           string        // Specific serial port (NFC_AGENT_PM3_PORT)
+	PersistentMode bool          // Use persistent subprocess (NFC_AGENT_PM3_PERSISTENT, default: true)
+	IdleTimeout    time.Duration // Idle timeout before killing subprocess (NFC_AGENT_PM3_IDLE_TIMEOUT, default: 60s)
 }
 
 // Load reads configuration from environment variables with sensible defaults.
@@ -35,7 +46,32 @@ func Load() *Config {
 		cfg.Host = host
 	}
 
+	// Proxmark3 configuration
+	cfg.Proxmark3 = Proxmark3Config{
+		Enabled:        os.Getenv("NFC_AGENT_PROXMARK3") == "1",
+		Path:           os.Getenv("NFC_AGENT_PM3_PATH"),
+		Port:           os.Getenv("NFC_AGENT_PM3_PORT"),
+		PersistentMode: os.Getenv("NFC_AGENT_PM3_PERSISTENT") != "0", // Default ON
+		IdleTimeout:    parseIdleTimeout(os.Getenv("NFC_AGENT_PM3_IDLE_TIMEOUT")),
+	}
+
 	return cfg
+}
+
+// parseIdleTimeout parses the idle timeout from a string.
+// Returns 60s by default, -1 for "never" or "-1".
+func parseIdleTimeout(s string) time.Duration {
+	if s == "" {
+		return 60 * time.Second
+	}
+	if s == "-1" || s == "never" {
+		return -1 // Never timeout
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 60 * time.Second
+	}
+	return d
 }
 
 // Address returns the formatted host:port address string.

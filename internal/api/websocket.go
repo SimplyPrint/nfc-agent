@@ -36,7 +36,8 @@ type WSClient struct {
 	send        chan []byte
 	hub         *WSHub
 	mu          sync.Mutex
-	subscribed  map[string]bool // Track subscribed readers for auto-read
+	closed      bool                      // True when client is disconnected
+	subscribed  map[string]bool           // Track subscribed readers for auto-read
 	pollTickers map[string]*time.Ticker
 	lastUIDs    map[string]string // Track last seen UID per reader
 }
@@ -75,7 +76,10 @@ func (h *WSHub) Run() {
 			h.mu.Lock()
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
+				client.mu.Lock()
+				client.closed = true
 				close(client.send)
+				client.mu.Unlock()
 			}
 			h.mu.Unlock()
 		case message := <-h.broadcast:
@@ -276,6 +280,13 @@ func (c *WSClient) handleMessage(msg WSMessage) {
 }
 
 func (c *WSClient) sendResponse(id string, msgType string, payload interface{}) {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return
+	}
+	c.mu.Unlock()
+
 	payloadBytes, _ := json.Marshal(payload)
 	response := WSMessage{
 		Type:    msgType,
@@ -283,17 +294,36 @@ func (c *WSClient) sendResponse(id string, msgType string, payload interface{}) 
 		Payload: payloadBytes,
 	}
 	responseBytes, _ := json.Marshal(response)
-	c.send <- responseBytes
+
+	// Use non-blocking send to avoid panic if channel closes between check and send
+	select {
+	case c.send <- responseBytes:
+	default:
+		// Channel full or closed, drop the message
+	}
 }
 
 func (c *WSClient) sendError(id string, errMsg string) {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return
+	}
+	c.mu.Unlock()
+
 	response := WSMessage{
 		Type:  "error",
 		ID:    id,
 		Error: errMsg,
 	}
 	responseBytes, _ := json.Marshal(response)
-	c.send <- responseBytes
+
+	// Use non-blocking send to avoid panic if channel closes between check and send
+	select {
+	case c.send <- responseBytes:
+	default:
+		// Channel full or closed, drop the message
+	}
 }
 
 func (c *WSClient) handleListReaders(id string) {

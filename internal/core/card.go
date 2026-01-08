@@ -1,15 +1,19 @@
 package core
 
 import (
+	"context"
 	"crypto/aes"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
+	"github.com/SimplyPrint/nfc-agent/internal/config"
 	"github.com/SimplyPrint/nfc-agent/internal/logging"
 	"github.com/SimplyPrint/nfc-agent/internal/openprinttag"
+	"github.com/SimplyPrint/nfc-agent/internal/proxmark3"
 	"github.com/ebfe/scard"
 )
 
@@ -30,6 +34,11 @@ type Card struct {
 // GetCardUID connects to the specified reader and attempts to read the card UID.
 // Returns an error if no card is present or if reading fails.
 func GetCardUID(readerName string) (*Card, error) {
+	// Dispatch to Proxmark3 if this is a Proxmark3 reader
+	if IsProxmark3Reader(readerName) {
+		return getCardUIDProxmark3(readerName)
+	}
+
 	ctx, err := scard.EstablishContext()
 	if err != nil {
 		return nil, fmt.Errorf("failed to establish context: %w", err)
@@ -1701,6 +1710,11 @@ func WriteMultipleRecords(readerName string, records []NDEFRecord) error {
 		return fmt.Errorf("no records to write")
 	}
 
+	// Dispatch to Proxmark3 if this is a Proxmark3 reader
+	if IsProxmark3Reader(readerName) {
+		return writeMultipleRecordsProxmark3(readerName, records)
+	}
+
 	ctx, err := scard.EstablishContext()
 	if err != nil {
 		return fmt.Errorf("failed to establish context: %w", err)
@@ -1902,6 +1916,11 @@ func ReadMifareBlock(readerName string, block int, key []byte, keyType byte) ([]
 		return nil, fmt.Errorf("cannot read sector trailer block %d (contains authentication keys)", block)
 	}
 
+	// Dispatch to Proxmark3 if this is a Proxmark3 reader
+	if IsProxmark3Reader(readerName) {
+		return readMifareBlockProxmark3(readerName, block, key, keyType)
+	}
+
 	ctx, err := scard.EstablishContext()
 	if err != nil {
 		return nil, fmt.Errorf("failed to establish context: %w", err)
@@ -1957,6 +1976,11 @@ func WriteMifareBlock(readerName string, block int, data []byte, key []byte, key
 		return fmt.Errorf("data must be exactly 16 bytes, got %d", len(data))
 	}
 
+	// Dispatch to Proxmark3 if this is a Proxmark3 reader
+	if IsProxmark3Reader(readerName) {
+		return writeMifareBlockProxmark3(readerName, block, data, key, keyType)
+	}
+
 	ctx, err := scard.EstablishContext()
 	if err != nil {
 		return fmt.Errorf("failed to establish context: %w", err)
@@ -2006,6 +2030,11 @@ func WriteMifareBlock(readerName string, block int, data []byte, key []byte, key
 func ReadUltralightPage(readerName string, page int, password []byte) ([]byte, error) {
 	if page < 0 || page > 255 {
 		return nil, fmt.Errorf("invalid page number: %d (must be 0-255)", page)
+	}
+
+	// Dispatch to Proxmark3 if this is a Proxmark3 reader
+	if IsProxmark3Reader(readerName) {
+		return readUltralightPageProxmark3(readerName, page, password)
 	}
 
 	ctx, err := scard.EstablishContext()
@@ -2110,6 +2139,11 @@ func WriteUltralightPage(readerName string, page int, data []byte, password []by
 	}
 	if len(data) != 4 {
 		return fmt.Errorf("data must be exactly 4 bytes, got %d", len(data))
+	}
+
+	// Dispatch to Proxmark3 if this is a Proxmark3 reader
+	if IsProxmark3Reader(readerName) {
+		return writeUltralightPageProxmark3(readerName, page, data, password)
 	}
 
 	ctx, err := scard.EstablishContext()
@@ -2763,5 +2797,326 @@ func WriteSectorTrailer(readerName string, block int, keyA, keyB, accessBits, au
 		"accessBits": hex.EncodeToString(finalAccessBits),
 	})
 
+	return nil
+}
+
+// =============================================================================
+// Proxmark3 Implementation Functions
+// =============================================================================
+
+// Singleton Proxmark3 client (shared across all calls to prevent concurrent access)
+var (
+	pm3Client     proxmark3.PM3Executor
+	pm3ClientOnce sync.Once
+	pm3Config     *config.Proxmark3Config
+)
+
+// getProxmark3Client returns the singleton Proxmark3 client using environment config.
+func getProxmark3Client() proxmark3.PM3Executor {
+	pm3ClientOnce.Do(func() {
+		// Load config if not already set
+		if pm3Config == nil {
+			cfg := config.Load()
+			pm3Config = &cfg.Proxmark3
+		}
+
+		pm3Path := pm3Config.Path
+		if pm3Path == "" {
+			var err error
+			pm3Path, err = proxmark3.DetectPM3()
+			if err != nil {
+				logging.Warn(logging.CatReader, "Failed to detect pm3 binary", map[string]any{
+					"error": err.Error(),
+				})
+			}
+		}
+		logging.Info(logging.CatReader, "Initializing Proxmark3 client", map[string]any{
+			"pm3Path":        pm3Path,
+			"port":           pm3Config.Port,
+			"persistentMode": pm3Config.PersistentMode,
+		})
+
+		// Create persistent or single-shot client based on config
+		if pm3Config.PersistentMode {
+			pm3Client = proxmark3.NewPersistentClient(proxmark3.PersistentConfig{
+				PM3Path:     pm3Path,
+				Port:        pm3Config.Port,
+				IdleTimeout: pm3Config.IdleTimeout,
+			})
+		} else {
+			pm3Client = proxmark3.NewClient(proxmark3.Config{
+				PM3Path: pm3Path,
+				Port:    pm3Config.Port,
+			})
+		}
+	})
+	return pm3Client
+}
+
+// InitProxmark3Eager starts the Proxmark3 subprocess eagerly at startup.
+// This ensures the first card read is fast instead of waiting for subprocess startup.
+func InitProxmark3Eager(cfg *config.Config) {
+	if !cfg.Proxmark3.Enabled {
+		return
+	}
+
+	// Store config for getProxmark3Client
+	pm3Config = &cfg.Proxmark3
+
+	go func() {
+		client := getProxmark3Client()
+		if client == nil {
+			return
+		}
+
+		// For persistent client, start the subprocess eagerly
+		if pc, ok := client.(*proxmark3.PersistentClient); ok {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+
+			if err := pc.Start(ctx); err != nil {
+				logging.Warn(logging.CatReader, "Failed to start Proxmark3 subprocess eagerly", map[string]any{
+					"error": err.Error(),
+				})
+			} else {
+				logging.Info(logging.CatReader, "Proxmark3 subprocess started eagerly for fast first read", nil)
+			}
+		} else {
+			// For regular client, just verify connectivity
+			if client.IsConnected() {
+				logging.Info(logging.CatReader, "Proxmark3 device connected", nil)
+			}
+		}
+	}()
+}
+
+// ShutdownProxmark3 gracefully shuts down the Proxmark3 subprocess.
+func ShutdownProxmark3() {
+	if pm3Client == nil {
+		return
+	}
+
+	if pc, ok := pm3Client.(*proxmark3.PersistentClient); ok {
+		pc.Stop()
+	}
+}
+
+// getCardUIDProxmark3 reads card UID using Proxmark3.
+func getCardUIDProxmark3(readerName string) (*Card, error) {
+	client := getProxmark3Client()
+	ctx := context.Background()
+
+	info, err := client.GetCardInfo(ctx)
+	if err != nil {
+		if proxmark3.IsNoCardError(err) {
+			return nil, fmt.Errorf("no card present")
+		}
+		return nil, fmt.Errorf("failed to get card info: %w", err)
+	}
+
+	cardInfo := &Card{
+		UID:      hex.EncodeToString(info.UID),
+		Type:     info.CardType,
+		Writable: true, // Assume writable for now
+	}
+
+	// Set protocol based on card type
+	if info.CardType == "MIFARE Classic 1K" || info.CardType == "MIFARE Classic 4K" {
+		cardInfo.Protocol = "NFC-A"
+		cardInfo.ProtocolISO = "ISO 14443-3A"
+		if info.CardType == "MIFARE Classic 1K" {
+			cardInfo.Size = 1024
+		} else {
+			cardInfo.Size = 4096
+		}
+	} else if info.CardType == "NTAG213" {
+		cardInfo.Protocol = "NFC-A"
+		cardInfo.ProtocolISO = "ISO 14443-3A"
+		cardInfo.Size = 180
+	} else if info.CardType == "NTAG215" {
+		cardInfo.Protocol = "NFC-A"
+		cardInfo.ProtocolISO = "ISO 14443-3A"
+		cardInfo.Size = 504
+	} else if info.CardType == "NTAG216" {
+		cardInfo.Protocol = "NFC-A"
+		cardInfo.ProtocolISO = "ISO 14443-3A"
+		cardInfo.Size = 888
+	} else if info.CardType == "MIFARE Ultralight" || info.CardType == "MIFARE Ultralight EV1" {
+		cardInfo.Protocol = "NFC-A"
+		cardInfo.ProtocolISO = "ISO 14443-3A"
+		cardInfo.Size = 64
+	}
+
+	// Try to read NDEF data for Ultralight/NTAG cards
+	if cardInfo.Type == "NTAG213" || cardInfo.Type == "NTAG215" || cardInfo.Type == "NTAG216" ||
+		cardInfo.Type == "MIFARE Ultralight" || cardInfo.Type == "MIFARE Ultralight EV1" {
+		if ndefData, err := client.ReadNDEF(ctx); err == nil && len(ndefData) > 0 {
+			cardInfo.Data = hex.EncodeToString(ndefData)
+			cardInfo.DataType = "binary"
+		}
+	}
+
+	return cardInfo, nil
+}
+
+// readMifareBlockProxmark3 reads a MIFARE Classic block using Proxmark3.
+func readMifareBlockProxmark3(readerName string, block int, key []byte, keyType byte) ([]byte, error) {
+	client := getProxmark3Client()
+	ctx := context.Background()
+
+	return client.ReadMifareBlock(ctx, block, key, keyType)
+}
+
+// writeMifareBlockProxmark3 writes a MIFARE Classic block using Proxmark3.
+func writeMifareBlockProxmark3(readerName string, block int, data []byte, key []byte, keyType byte) error {
+	client := getProxmark3Client()
+	ctx := context.Background()
+
+	return client.WriteMifareBlock(ctx, block, data, key, keyType)
+}
+
+// readUltralightPageProxmark3 reads a MIFARE Ultralight/NTAG page using Proxmark3.
+func readUltralightPageProxmark3(readerName string, page int, password []byte) ([]byte, error) {
+	client := getProxmark3Client()
+	ctx := context.Background()
+
+	return client.ReadUltralightPage(ctx, page, password)
+}
+
+// writeUltralightPageProxmark3 writes a MIFARE Ultralight/NTAG page using Proxmark3.
+func writeUltralightPageProxmark3(readerName string, page int, data []byte, password []byte) error {
+	client := getProxmark3Client()
+	ctx := context.Background()
+
+	return client.WriteUltralightPage(ctx, page, data, password)
+}
+
+// writeMultipleRecordsProxmark3 writes multiple NDEF records to an ISO 15693 tag using Proxmark3.
+func writeMultipleRecordsProxmark3(readerName string, records []NDEFRecord) error {
+	logging.Info(logging.CatReader, "writeMultipleRecordsProxmark3 called", map[string]any{
+		"readerName":  readerName,
+		"recordCount": len(records),
+	})
+
+	client := getProxmark3Client()
+	ctx := context.Background()
+
+	// Build multi-record NDEF message (same logic as WriteMultipleRecords)
+	var ndefRecords []byte
+	for i, rec := range records {
+		isFirst := i == 0
+		isLast := i == len(records)-1
+
+		var recordBytes []byte
+		switch rec.Type {
+		case "url":
+			prefixCode, remainder := findURIPrefix(rec.Data)
+			payload := []byte{prefixCode}
+			payload = append(payload, []byte(remainder)...)
+			recordBytes = createNDEFRecordRaw(0x01, []byte("U"), payload, isFirst, isLast)
+		case "text":
+			payload := []byte{0x02}
+			payload = append(payload, []byte("en")...)
+			payload = append(payload, []byte(rec.Data)...)
+			recordBytes = createNDEFRecordRaw(0x01, []byte("T"), payload, isFirst, isLast)
+		case "json":
+			recordBytes = createNDEFRecordRaw(0x02, []byte("application/json"), []byte(rec.Data), isFirst, isLast)
+		case "binary":
+			decoded, err := hex.DecodeString(rec.Data)
+			if err != nil {
+				return fmt.Errorf("invalid binary data in record %d: %w", i, err)
+			}
+			recordBytes = createNDEFRecordRaw(0x02, []byte("application/octet-stream"), decoded, isFirst, isLast)
+		case "mime":
+			if rec.MimeType == "" {
+				return fmt.Errorf("mimeType required for mime record type in record %d", i)
+			}
+			var payload []byte
+			if rec.DataType == "binary" {
+				decoded, err := base64.StdEncoding.DecodeString(rec.Data)
+				if err != nil {
+					return fmt.Errorf("invalid base64 data in mime record %d: %w", i, err)
+				}
+				payload = decoded
+			} else {
+				payload = []byte(rec.Data)
+			}
+			recordBytes = createNDEFRecordRaw(0x02, []byte(rec.MimeType), payload, isFirst, isLast)
+		default:
+			return fmt.Errorf("unsupported record type: %s", rec.Type)
+		}
+		ndefRecords = append(ndefRecords, recordBytes...)
+	}
+
+	// Wrap in TLV format
+	tlv := []byte{0x03} // NDEF TLV type
+	if len(ndefRecords) < 255 {
+		tlv = append(tlv, byte(len(ndefRecords)))
+	} else {
+		tlv = append(tlv, 0xFF)
+		tlv = append(tlv, byte(len(ndefRecords)>>8))
+		tlv = append(tlv, byte(len(ndefRecords)))
+	}
+	tlv = append(tlv, ndefRecords...)
+	tlv = append(tlv, 0xFE) // Terminator TLV
+
+	// ISO 15693 (Type 5) tags: CC at block 0, NDEF at block 1
+	// Calculate size for CC (available memory / 8)
+	totalSize := len(tlv) + 4 // +4 for CC block
+	ccSize := byte((totalSize + 7) / 8)
+	if ccSize < 0x10 {
+		ccSize = 0x10 // Minimum reasonable size
+	}
+
+	// CC format: E1 40 <size/8> 05
+	// - 0xE1: Magic number (NFC Forum Type 5)
+	// - 0x40: Version 1.0 (4), read/write access (0)
+	// - Size: Available memory / 8
+	// - 0x05: Multiple block read supported, no special frame format
+	cc := []byte{0xE1, 0x40, ccSize, 0x05}
+
+	// Write CC at block 0
+	logging.Info(logging.CatReader, "Writing CC block", map[string]any{
+		"block": 0,
+		"data":  hex.EncodeToString(cc),
+	})
+	if err := client.WriteISO15693Block(ctx, 0, cc); err != nil {
+		logging.Error(logging.CatReader, "Failed to write CC", map[string]any{"error": err.Error()})
+		return fmt.Errorf("failed to write CC: %w", err)
+	}
+	logging.Info(logging.CatReader, "CC block written successfully", nil)
+
+	// Write NDEF data starting at block 1
+	// ISO 15693 blocks are 4 bytes each
+	block := 1
+	totalBlocks := (len(tlv) + 3) / 4
+	logging.Info(logging.CatReader, "Writing NDEF data", map[string]any{
+		"tlvLength":   len(tlv),
+		"totalBlocks": totalBlocks,
+	})
+
+	for i := 0; i < len(tlv); i += 4 {
+		blockData := make([]byte, 4)
+		end := i + 4
+		if end > len(tlv) {
+			end = len(tlv)
+		}
+		copy(blockData, tlv[i:end])
+
+		logging.Debug(logging.CatReader, "Writing block", map[string]any{
+			"block": block,
+			"data":  hex.EncodeToString(blockData),
+		})
+		if err := client.WriteISO15693Block(ctx, block, blockData); err != nil {
+			logging.Error(logging.CatReader, "Failed to write block", map[string]any{
+				"block": block,
+				"error": err.Error(),
+			})
+			return fmt.Errorf("failed to write block %d: %w", block, err)
+		}
+		block++
+	}
+
+	logging.Info(logging.CatReader, "All blocks written successfully", map[string]any{"totalBlocks": block - 1})
 	return nil
 }
