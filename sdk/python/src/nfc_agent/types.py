@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Literal, Optional
+from typing import Literal, Optional
 
 
 class CardDataType(str, Enum):
@@ -175,7 +175,7 @@ class MifareBlockWriteResult:
 class MifareBatchWriteResult:
     """Response from batch writing MIFARE Classic blocks."""
 
-    results: List[MifareBlockWriteResult]
+    results: list[MifareBlockWriteResult]
     """Results for each block write."""
 
     written: int
@@ -225,7 +225,7 @@ class UltralightPageWriteResult:
 class UltralightBatchWriteResult:
     """Response from batch writing MIFARE Ultralight pages."""
 
-    results: List[UltralightPageWriteResult]
+    results: list[UltralightPageWriteResult]
     """Results for each page write."""
 
     written: int
@@ -259,13 +259,13 @@ class SupportedReader:
     name: str
     manufacturer: str
     description: str
-    supported_tags: List[str]
+    supported_tags: list[str]
     capabilities: SupportedReaderCapabilities
-    limitations: Optional[List[str]] = None
+    limitations: Optional[list[str]] = None
 
 
 @dataclass
 class SupportedReadersResponse:
     """Response from the supported readers endpoint."""
 
-    readers: List[SupportedReader]
+    readers: list[SupportedReader]

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Callable, List, Optional
+import contextlib
+from typing import TYPE_CHECKING, Callable
 
 from .exceptions import CardError
 from .types import Card
@@ -57,12 +58,12 @@ class CardPoller:
         self._client = client
         self._reader_index = reader_index
         self._interval = interval
-        self._task: Optional[asyncio.Task[None]] = None
-        self._last_card_uid: Optional[str] = None
+        self._task: asyncio.Task[None] | None = None
+        self._last_card_uid: str | None = None
 
-        self._on_card: List[CardCallback] = []
-        self._on_removed: List[RemovedCallback] = []
-        self._on_error: List[ErrorCallback] = []
+        self._on_card: list[CardCallback] = []
+        self._on_removed: list[RemovedCallback] = []
+        self._on_error: list[ErrorCallback] = []
 
     @property
     def is_running(self) -> bool:
@@ -134,33 +135,25 @@ class CardPoller:
             if self._last_card_uid != card.uid:
                 self._last_card_uid = card.uid
                 for card_cb in self._on_card:
-                    try:
+                    with contextlib.suppress(Exception):
                         card_cb(card)
-                    except Exception:
-                        pass
 
         except CardError as e:
             # Card was removed or read failed
             if self._last_card_uid is not None:
                 self._last_card_uid = None
                 for removed_cb in self._on_removed:
-                    try:
+                    with contextlib.suppress(Exception):
                         removed_cb()
-                    except Exception:
-                        pass
 
             # Only emit error for non-card-related issues
             error_msg = str(e).lower()
             if "no card" not in error_msg:
                 for error_cb in self._on_error:
-                    try:
+                    with contextlib.suppress(Exception):
                         error_cb(e)
-                    except Exception:
-                        pass
 
         except Exception as e:
             for error_cb in self._on_error:
-                try:
+                with contextlib.suppress(Exception):
                     error_cb(e)
-                except Exception:
-                    pass

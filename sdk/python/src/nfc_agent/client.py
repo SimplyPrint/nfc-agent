@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Any, List, Optional
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -74,8 +74,8 @@ class NFCClient:
         """
         self.base_url = base_url
         self.timeout = timeout
-        self._async_client: Optional[httpx.AsyncClient] = None
-        self._sync_client: Optional[httpx.Client] = None
+        self._async_client: httpx.AsyncClient | None = None
+        self._sync_client: httpx.Client | None = None
 
     async def __aenter__(self) -> NFCClient:
         """Async context manager entry."""
@@ -120,8 +120,8 @@ class NFCClient:
         method: str,
         path: str,
         *,
-        params: Optional[dict[str, Any]] = None,
-        json: Optional[dict[str, Any]] = None,
+        params: dict[str, Any] | None = None,
+        json: dict[str, Any] | None = None,
     ) -> Any:
         """Make an async HTTP request."""
         client = self._async_client
@@ -166,8 +166,8 @@ class NFCClient:
         method: str,
         path: str,
         *,
-        params: Optional[dict[str, Any]] = None,
-        json: Optional[dict[str, Any]] = None,
+        params: dict[str, Any] | None = None,
+        json: dict[str, Any] | None = None,
     ) -> Any:
         """Make a sync HTTP request."""
         client = self._sync_client
@@ -219,7 +219,7 @@ class NFCClient:
         except Exception:
             return False
 
-    async def get_readers(self) -> List[Reader]:
+    async def get_readers(self) -> list[Reader]:
         """Get a list of available NFC readers."""
         data = await self._request("GET", "/v1/readers")
         return [Reader(**r) for r in data]
@@ -247,9 +247,9 @@ class NFCClient:
         self,
         reader_index: int,
         *,
-        data: Optional[str] = None,
+        data: str | None = None,
         data_type: str,
-        url: Optional[str] = None,
+        url: str | None = None,
     ) -> None:
         """
         Write data to a card on a specific reader.
@@ -310,8 +310,8 @@ class NFCClient:
         reader_index: int,
         block: int,
         *,
-        key: Optional[str] = None,
-        key_type: Optional[MifareKeyType] = None,
+        key: str | None = None,
+        key_type: MifareKeyType | None = None,
     ) -> MifareBlockData:
         """
         Read a raw 16-byte block from a MIFARE Classic card.
@@ -350,8 +350,8 @@ class NFCClient:
         block: int,
         *,
         data: str,
-        key: Optional[str] = None,
-        key_type: Optional[MifareKeyType] = None,
+        key: str | None = None,
+        key_type: MifareKeyType | None = None,
     ) -> None:
         """
         Write a raw 16-byte block to a MIFARE Classic card.
@@ -384,10 +384,10 @@ class NFCClient:
     async def write_mifare_blocks(
         self,
         reader_index: int,
-        blocks: List[dict[str, Any]],
+        blocks: list[dict[str, Any]],
         *,
-        key: Optional[str] = None,
-        key_type: Optional[MifareKeyType] = None,
+        key: str | None = None,
+        key_type: MifareKeyType | None = None,
     ) -> MifareBatchWriteResult:
         """
         Write multiple blocks to a MIFARE Classic card in a single session.
@@ -425,7 +425,7 @@ class NFCClient:
         reader_index: int,
         page: int,
         *,
-        password: Optional[str] = None,
+        password: str | None = None,
     ) -> UltralightPageData:
         """
         Read a 4-byte page from a MIFARE Ultralight card.
@@ -461,7 +461,7 @@ class NFCClient:
         page: int,
         *,
         data: str,
-        password: Optional[str] = None,
+        password: str | None = None,
     ) -> None:
         """
         Write a 4-byte page to a MIFARE Ultralight card.
@@ -491,9 +491,9 @@ class NFCClient:
     async def write_ultralight_pages(
         self,
         reader_index: int,
-        pages: List[dict[str, Any]],
+        pages: list[dict[str, Any]],
         *,
-        password: Optional[str] = None,
+        password: str | None = None,
     ) -> UltralightBatchWriteResult:
         """
         Write multiple pages to a MIFARE Ultralight/NTAG card.
@@ -556,7 +556,7 @@ class NFCClient:
         data: str,
         aes_key: str,
         auth_key: str,
-        auth_key_type: Optional[MifareKeyType] = None,
+        auth_key_type: MifareKeyType | None = None,
     ) -> None:
         """
         Encrypt data with AES-128-ECB and write to a MIFARE Classic block.
@@ -597,8 +597,8 @@ class NFCClient:
         key_a: str,
         key_b: str,
         auth_key: str,
-        access_bits: Optional[str] = None,
-        auth_key_type: Optional[MifareKeyType] = None,
+        access_bits: str | None = None,
+        auth_key_type: MifareKeyType | None = None,
     ) -> None:
         """
         Write a MIFARE Classic sector trailer with new keys.
@@ -661,7 +661,7 @@ class NFCClient:
         except Exception:
             return False
 
-    def get_readers_sync(self) -> List[Reader]:
+    def get_readers_sync(self) -> list[Reader]:
         """Get a list of available NFC readers (sync version)."""
         data = self._request_sync("GET", "/v1/readers")
         return [Reader(**r) for r in data]
@@ -678,9 +678,9 @@ class NFCClient:
         self,
         reader_index: int,
         *,
-        data: Optional[str] = None,
+        data: str | None = None,
         data_type: str,
-        url: Optional[str] = None,
+        url: str | None = None,
     ) -> None:
         """Write data to a card (sync version)."""
         body: dict[str, Any] = {"dataType": data_type}

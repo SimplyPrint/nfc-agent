@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import re
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable
 
 import websockets
 from websockets.asyncio.client import ClientConnection
@@ -82,7 +83,7 @@ class NFCWebSocket:
 
     def __init__(
         self,
-        url: Optional[str] = None,
+        url: str | None = None,
         *,
         timeout: float = DEFAULT_TIMEOUT,
         auto_reconnect: bool = True,
@@ -105,19 +106,19 @@ class NFCWebSocket:
         self.auto_reconnect = auto_reconnect
         self.reconnect_interval = reconnect_interval
 
-        self._ws: Optional[ClientConnection] = None
+        self._ws: ClientConnection | None = None
         self._request_id = 0
-        self._pending: Dict[str, _PendingRequest] = {}
+        self._pending: dict[str, _PendingRequest] = {}
         self._is_closing = False
-        self._reconnect_task: Optional[asyncio.Task[None]] = None
-        self._receive_task: Optional[asyncio.Task[None]] = None
+        self._reconnect_task: asyncio.Task[None] | None = None
+        self._receive_task: asyncio.Task[None] | None = None
 
         # Event listeners
-        self._on_card_detected: List[CardDetectedCallback] = []
-        self._on_card_removed: List[CardRemovedCallback] = []
-        self._on_connected: List[ConnectionCallback] = []
-        self._on_disconnected: List[ConnectionCallback] = []
-        self._on_error: List[ErrorCallback] = []
+        self._on_card_detected: list[CardDetectedCallback] = []
+        self._on_card_removed: list[CardRemovedCallback] = []
+        self._on_connected: list[ConnectionCallback] = []
+        self._on_disconnected: list[ConnectionCallback] = []
+        self._on_error: list[ErrorCallback] = []
 
     @property
     def is_connected(self) -> bool:
@@ -158,18 +159,14 @@ class NFCWebSocket:
 
         if self._reconnect_task:
             self._reconnect_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._reconnect_task
-            except asyncio.CancelledError:
-                pass
             self._reconnect_task = None
 
         if self._receive_task:
             self._receive_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._receive_task
-            except asyncio.CancelledError:
-                pass
             self._receive_task = None
 
         if self._ws:
@@ -177,7 +174,7 @@ class NFCWebSocket:
             self._ws = None
 
         # Reject pending requests
-        for req_id, pending in self._pending.items():
+        for _req_id, pending in self._pending.items():
             pending.timeout_handle.cancel()
             if not pending.future.done():
                 pending.future.set_exception(ConnectionError("Connection closed"))
@@ -225,7 +222,7 @@ class NFCWebSocket:
     # API Methods
     # =========================================================================
 
-    async def get_readers(self) -> List[Reader]:
+    async def get_readers(self) -> list[Reader]:
         """List available NFC readers."""
         response = await self._request("list_readers")
         return [Reader(**r) for r in response]
@@ -250,9 +247,9 @@ class NFCWebSocket:
         self,
         reader_index: int,
         *,
-        data: Optional[str] = None,
+        data: str | None = None,
         data_type: str,
-        url: Optional[str] = None,
+        url: str | None = None,
     ) -> None:
         """
         Write data to a card.
@@ -328,7 +325,7 @@ class NFCWebSocket:
             raise CardError(str(e)) from e
 
     async def write_records(
-        self, reader_index: int, records: List[NDEFRecord]
+        self, reader_index: int, records: list[NDEFRecord]
     ) -> None:
         """
         Write multiple NDEF records to a card.
@@ -389,8 +386,8 @@ class NFCWebSocket:
         reader_index: int,
         block: int,
         *,
-        key: Optional[str] = None,
-        key_type: Optional[MifareKeyType] = None,
+        key: str | None = None,
+        key_type: MifareKeyType | None = None,
     ) -> MifareBlockData:
         """Read a raw 16-byte block from a MIFARE Classic card."""
         payload: dict[str, Any] = {"readerIndex": reader_index, "block": block}
@@ -411,8 +408,8 @@ class NFCWebSocket:
         block: int,
         *,
         data: str,
-        key: Optional[str] = None,
-        key_type: Optional[MifareKeyType] = None,
+        key: str | None = None,
+        key_type: MifareKeyType | None = None,
     ) -> None:
         """Write a raw 16-byte block to a MIFARE Classic card."""
         payload: dict[str, Any] = {
@@ -433,10 +430,10 @@ class NFCWebSocket:
     async def write_mifare_blocks(
         self,
         reader_index: int,
-        blocks: List[dict[str, Any]],
+        blocks: list[dict[str, Any]],
         *,
-        key: Optional[str] = None,
-        key_type: Optional[MifareKeyType] = None,
+        key: str | None = None,
+        key_type: MifareKeyType | None = None,
     ) -> MifareBatchWriteResult:
         """Write multiple blocks to a MIFARE Classic card."""
         payload: dict[str, Any] = {"readerIndex": reader_index, "blocks": blocks}
@@ -472,7 +469,7 @@ class NFCWebSocket:
         reader_index: int,
         page: int,
         *,
-        password: Optional[str] = None,
+        password: str | None = None,
     ) -> UltralightPageData:
         """Read a 4-byte page from a MIFARE Ultralight card."""
         payload: dict[str, Any] = {"readerIndex": reader_index, "page": page}
@@ -491,7 +488,7 @@ class NFCWebSocket:
         page: int,
         *,
         data: str,
-        password: Optional[str] = None,
+        password: str | None = None,
     ) -> None:
         """Write a 4-byte page to a MIFARE Ultralight card."""
         payload: dict[str, Any] = {
@@ -510,9 +507,9 @@ class NFCWebSocket:
     async def write_ultralight_pages(
         self,
         reader_index: int,
-        pages: List[dict[str, Any]],
+        pages: list[dict[str, Any]],
         *,
-        password: Optional[str] = None,
+        password: str | None = None,
     ) -> UltralightBatchWriteResult:
         """Write multiple pages to a MIFARE Ultralight/NTAG card."""
         payload: dict[str, Any] = {"readerIndex": reader_index, "pages": pages}
@@ -562,7 +559,7 @@ class NFCWebSocket:
         data: str,
         aes_key: str,
         auth_key: str,
-        auth_key_type: Optional[MifareKeyType] = None,
+        auth_key_type: MifareKeyType | None = None,
     ) -> None:
         """Encrypt data with AES-128-ECB and write to a MIFARE Classic block."""
         payload: dict[str, Any] = {
@@ -588,8 +585,8 @@ class NFCWebSocket:
         key_a: str,
         key_b: str,
         auth_key: str,
-        access_bits: Optional[str] = None,
-        auth_key_type: Optional[MifareKeyType] = None,
+        access_bits: str | None = None,
+        auth_key_type: MifareKeyType | None = None,
     ) -> None:
         """Write a MIFARE Classic sector trailer with new keys."""
         payload: dict[str, Any] = {
@@ -614,7 +611,7 @@ class NFCWebSocket:
     # =========================================================================
 
     async def _request(
-        self, msg_type: str, payload: Optional[dict[str, Any]] = None
+        self, msg_type: str, payload: dict[str, Any] | None = None
     ) -> Any:
         """Send a request and wait for response."""
         if not self.is_connected:
@@ -671,20 +668,16 @@ class NFCWebSocket:
                 reader=detected_payload.get("reader", 0), card=card
             )
             for detected_cb in self._on_card_detected:
-                try:
+                with contextlib.suppress(Exception):
                     detected_cb(detected_event)
-                except Exception:
-                    pass
             return
 
         if msg_type == "card_removed":
             removed_payload = data.get("payload", {})
             removed_event = CardRemovedEvent(reader=removed_payload.get("reader", 0))
             for removed_cb in self._on_card_removed:
-                try:
+                with contextlib.suppress(Exception):
                     removed_cb(removed_event)
-                except Exception:
-                    pass
             return
 
         # Handle responses
@@ -703,7 +696,7 @@ class NFCWebSocket:
 
         async def reconnect() -> None:
             await asyncio.sleep(self.reconnect_interval)
-            try:
+            try:  # noqa: SIM105 - contextlib.suppress doesn't work with await
                 await self.connect()
             except ConnectionError:
                 pass  # Will try again
@@ -713,18 +706,14 @@ class NFCWebSocket:
     def _emit_connected(self) -> None:
         """Emit connected event to all listeners."""
         for callback in self._on_connected:
-            try:
+            with contextlib.suppress(Exception):
                 callback()
-            except Exception:
-                pass
 
     def _emit_disconnected(self) -> None:
         """Emit disconnected event to all listeners."""
         for callback in self._on_disconnected:
-            try:
+            with contextlib.suppress(Exception):
                 callback()
-            except Exception:
-                pass
 
     @staticmethod
     def _parse_card(data: dict[str, Any]) -> Card:
