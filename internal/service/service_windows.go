@@ -104,3 +104,8 @@ func (s *windowsService) Status() (string, error) {
 	}
 	return "installed (will start on login)", nil
 }
+
+// UpgradeIfNeeded is a no-op on Windows (registry entry doesn't need migration)
+func (s *windowsService) UpgradeIfNeeded() (bool, error) {
+	return false, nil
+}

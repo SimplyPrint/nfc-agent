@@ -198,3 +198,8 @@ func (s *linuxService) Status() (string, error) {
 	}
 	return fmt.Sprintf("installed (%s) but not running", strings.Join(methods, ", ")), nil
 }
+
+// UpgradeIfNeeded is a no-op on Linux (desktop entry doesn't need migration)
+func (s *linuxService) UpgradeIfNeeded() (bool, error) {
+	return false, nil
+}

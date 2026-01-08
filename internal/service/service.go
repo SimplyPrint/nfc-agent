@@ -14,4 +14,7 @@ type Service interface {
 	Uninstall() error
 	IsInstalled() bool
 	Status() (string, error)
+	// UpgradeIfNeeded checks if the service config needs updating and reinstalls if so.
+	// Returns true if an upgrade was performed.
+	UpgradeIfNeeded() (bool, error)
 }

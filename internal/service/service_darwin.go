@@ -164,3 +164,52 @@ func (s *darwinService) Status() (string, error) {
 
 	return "installed", nil
 }
+
+// UpgradeIfNeeded checks if the plist needs updating (e.g., missing LimitLoadToSessionType)
+// and reinstalls if necessary. Returns true if an upgrade was performed.
+func (s *darwinService) UpgradeIfNeeded() (bool, error) {
+	if !s.IsInstalled() {
+		return false, nil
+	}
+
+	// Read current plist
+	content, err := os.ReadFile(s.plistPath())
+	if err != nil {
+		return false, fmt.Errorf("failed to read plist: %w", err)
+	}
+
+	// Check if it has the required keys (added in v0.5.1+)
+	needsUpgrade := false
+	if !contains(content, "LimitLoadToSessionType") {
+		needsUpgrade = true
+	}
+
+	if !needsUpgrade {
+		return false, nil
+	}
+
+	// Uninstall and reinstall to get new plist
+	if err := s.Uninstall(); err != nil {
+		return false, fmt.Errorf("failed to uninstall old service: %w", err)
+	}
+
+	if err := s.Install(); err != nil {
+		return false, fmt.Errorf("failed to install upgraded service: %w", err)
+	}
+
+	return true, nil
+}
+
+// contains checks if data contains the substring
+func contains(data []byte, substr string) bool {
+	return len(data) > 0 && len(substr) > 0 && bytesContains(data, []byte(substr))
+}
+
+func bytesContains(data, substr []byte) bool {
+	for i := 0; i <= len(data)-len(substr); i++ {
+		if string(data[i:i+len(substr)]) == string(substr) {
+			return true
+		}
+	}
+	return false
+}

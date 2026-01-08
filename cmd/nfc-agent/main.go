@@ -15,6 +15,7 @@ import (
 	"github.com/SimplyPrint/nfc-agent/internal/api"
 	"github.com/SimplyPrint/nfc-agent/internal/certs"
 	"github.com/SimplyPrint/nfc-agent/internal/config"
+	"github.com/SimplyPrint/nfc-agent/internal/core"
 	"github.com/SimplyPrint/nfc-agent/internal/logging"
 	"github.com/SimplyPrint/nfc-agent/internal/service"
 	"github.com/SimplyPrint/nfc-agent/internal/settings"
@@ -136,12 +137,24 @@ func run(cfg *config.Config, headless bool) {
 		"version": api.Version,
 	})
 
+	// Auto-upgrade service configuration if needed (e.g., plist migration on macOS)
+	svc := service.New()
+	if upgraded, err := svc.UpgradeIfNeeded(); err != nil {
+		log.Printf("Warning: failed to upgrade service config: %v", err)
+	} else if upgraded {
+		log.Println("Auto-start service configuration upgraded")
+	}
+
 	// Initialize update checker
 	api.InitUpdateChecker()
+
+	// Initialize Proxmark3 eagerly if enabled (for fast first read)
+	core.InitProxmark3Eager(cfg)
 
 	// Set up shutdown handler for API endpoint
 	api.SetShutdownHandler(func() {
 		log.Println("Shutting down...")
+		core.ShutdownProxmark3()
 		os.Exit(0)
 	})
 
@@ -205,6 +218,7 @@ func run(cfg *config.Config, headless bool) {
 		// (avoids race condition with Cocoa event loop on macOS)
 		trayApp := tray.New(addr, welcome.IsFirstRun(), func() {
 			log.Println("Shutting down...")
+			core.ShutdownProxmark3()
 			os.Exit(0)
 		})
 
@@ -225,6 +239,7 @@ func run(cfg *config.Config, headless bool) {
 		go func() {
 			<-sigChan
 			log.Println("Shutting down...")
+			core.ShutdownProxmark3()
 			os.Exit(0)
 		}()
 
