@@ -1,6 +1,7 @@
 package core
 
 import (
+	"strconv"
 	"testing"
 )
 
@@ -409,25 +410,49 @@ func TestCCBasedDetection(t *testing.T) {
 	}
 }
 
-// TestICodeSLIXDetection tests ICode SLIX detection from UID manufacturer byte
+// TestICodeSLIXDetection tests ICode SLI/SLIX/SLIX2 detection from UID type indicator bits
+// Per NXP datasheet (SL2S2602), UID4 (hex position 8-9) contains bits 40:33
+// Bits 37 and 36 indicate the ICODE type:
+//
+//	Bit 37=0, Bit 36=0: ICODE SLI
+//	Bit 37=1, Bit 36=0: ICODE SLIX
+//	Bit 37=0, Bit 36=1: ICODE SLIX2
+//	Bit 37=1, Bit 36=1: RFU
 func TestICodeSLIXDetection(t *testing.T) {
 	tests := []struct {
 		name         string
 		uid          string
 		atr          string
 		expectedType string
+		expectedSize int
 	}{
 		{
-			name:         "ICode SLIX with NXP manufacturer (0xE0)",
-			uid:          "80391566080104e0",
+			name:         "ICode SLIX2 - bits (0,1)",
+			uid:          "80391566080104e0", // UID4=08: bit37=0, bit36=1 -> SLIX2
+			atr:          "3b8f8001804f0ca0000003060b00140000000077",
+			expectedType: "ICode SLIX2",
+			expectedSize: 320,
+		},
+		{
+			name:         "ICode SLIX - bits (1,0)",
+			uid:          "80391566100104e0", // UID4=10: bit37=1, bit36=0 -> SLIX
 			atr:          "3b8f8001804f0ca0000003060b00140000000077",
 			expectedType: "ICode SLIX",
+			expectedSize: 896,
+		},
+		{
+			name:         "ICode SLI - bits (0,0)",
+			uid:          "80391566000104e0", // UID4=00: bit37=0, bit36=0 -> SLI
+			atr:          "3b8f8001804f0ca0000003060b00140000000077",
+			expectedType: "ICode SLI",
+			expectedSize: 112,
 		},
 		{
 			name:         "Generic ISO 15693 (non-NXP)",
-			uid:          "8039156608010400",
+			uid:          "8039156608010400", // Manufacturer != 0xE0
 			atr:          "3b8f8001804f0ca0000003060b00140000000077",
 			expectedType: "ISO 15693",
+			expectedSize: 1024,
 		},
 	}
 
@@ -438,16 +463,42 @@ func TestICodeSLIXDetection(t *testing.T) {
 				t.Fatal("ATR should contain ISO 15693 pattern '03060b'")
 			}
 
-			// Check UID manufacturer byte (last 2 chars in UID)
+			// Simulate the detection logic
 			var detectedType string
-			if len(tt.uid) >= 16 && tt.uid[14:16] == "e0" {
-				detectedType = "ICode SLIX"
+			var detectedSize int
+			uid := tt.uid
+
+			if len(uid) >= 16 && uid[14:16] == "e0" {
+				// NXP ICode family - check type indicator bits
+				if len(uid) >= 10 {
+					uid4Byte, _ := strconv.ParseUint(uid[8:10], 16, 8)
+					bit37 := (uid4Byte >> 4) & 1
+					bit36 := (uid4Byte >> 3) & 1
+					switch {
+					case bit37 == 0 && bit36 == 1:
+						detectedType = "ICode SLIX2"
+						detectedSize = 320
+					case bit37 == 1 && bit36 == 0:
+						detectedType = "ICode SLIX"
+						detectedSize = 896
+					case bit37 == 0 && bit36 == 0:
+						detectedType = "ICode SLI"
+						detectedSize = 112
+					default:
+						detectedType = "ICode SLIX"
+						detectedSize = 896
+					}
+				}
 			} else {
 				detectedType = "ISO 15693"
+				detectedSize = 1024
 			}
 
 			if detectedType != tt.expectedType {
 				t.Errorf("expected type %s, got %s", tt.expectedType, detectedType)
+			}
+			if detectedSize != tt.expectedSize {
+				t.Errorf("expected size %d, got %d", tt.expectedSize, detectedSize)
 			}
 		})
 	}

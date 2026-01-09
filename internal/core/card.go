@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -426,10 +427,38 @@ func detectCardType(card *scard.Card, cardInfo *Card) {
 			// 0xE0 = NXP (ICode SLI/Slix/Slix-2)
 			uid := cardInfo.UID
 			if len(uid) >= 16 && uid[14:16] == "e0" {
-				// NXP ICode family (SLI, Slix, Slix2)
-				cardInfo.Type = "ICode SLIX"
+				// NXP ICode family - differentiate SLI/SLIX/SLIX2 using type indicator bits
+				// Per NXP datasheet (SL2S2602), UID4 (hex position 8-9) contains bits 40:33
+				// Bits 37 and 36 indicate the ICODE type:
+				//   Bit 37=0, Bit 36=0: ICODE SLI
+				//   Bit 37=1, Bit 36=0: ICODE SLIX
+				//   Bit 37=0, Bit 36=1: ICODE SLIX2
+				//   Bit 37=1, Bit 36=1: RFU
 				cardInfo.Writable = true
-				cardInfo.Size = 896 // ICode SLIX2 has 2560 bits = 320 bytes, SLIX has 896 bytes
+				if len(uid) >= 10 {
+					uid4Byte, err := strconv.ParseUint(uid[8:10], 16, 8)
+					if err == nil {
+						bit37 := (uid4Byte >> 4) & 1 // bit 4 of the byte
+						bit36 := (uid4Byte >> 3) & 1 // bit 3 of the byte
+						switch {
+						case bit37 == 0 && bit36 == 1:
+							cardInfo.Type = "ICode SLIX2"
+							cardInfo.Size = 320 // SLIX2 has 2560 bits = 320 bytes
+							return
+						case bit37 == 1 && bit36 == 0:
+							cardInfo.Type = "ICode SLIX"
+							cardInfo.Size = 896 // SLIX has 896 bytes
+							return
+						case bit37 == 0 && bit36 == 0:
+							cardInfo.Type = "ICode SLI"
+							cardInfo.Size = 112 // SLI has 896 bits = 112 bytes
+							return
+						}
+					}
+				}
+				// Fallback if we couldn't parse type bits
+				cardInfo.Type = "ICode SLIX"
+				cardInfo.Size = 896
 				return
 			}
 			// Generic ISO 15693
@@ -1161,7 +1190,7 @@ func readNDEFData(card *scard.Card, cardInfo *Card) {
 				}
 			}
 		}
-	} else if cardInfo.Type == "ICode SLIX" || cardInfo.Type == "ISO 15693" {
+	} else if cardInfo.Type == "ICode SLIX" || cardInfo.Type == "ICode SLIX2" || cardInfo.Type == "ICode SLI" || cardInfo.Type == "ISO 15693" {
 		// ISO 15693 (Type 5) tags: NDEF starts at block 1 (after CC at block 0)
 		maxBlocks := 79 // 80 blocks total, skip CC at block 0
 		for blockNum := 1; blockNum < 1+maxBlocks; blockNum++ {
