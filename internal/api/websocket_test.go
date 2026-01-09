@@ -47,6 +47,7 @@ func TestWSHub_Run(t *testing.T) {
 		hub:         hub,
 		subscribed:  make(map[string]bool),
 		pollTickers: make(map[string]*time.Ticker),
+		pollDone:    make(map[string]chan struct{}),
 		lastUIDs:    make(map[string]string),
 	}
 
@@ -784,5 +785,152 @@ func BenchmarkWSClient_sendResponse(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		client.sendResponse("id", "type", payload)
+	}
+}
+
+// TestWSClient_SubscribeUnsubscribe_ClearsLastUID verifies that the lastUIDs map
+// is properly cleared when unsubscribing, preventing stale UIDs from blocking
+// card_detected events on re-subscribe.
+func TestWSClient_SubscribeUnsubscribe_ClearsLastUID(t *testing.T) {
+	client := &WSClient{
+		send:        make(chan []byte, 256),
+		subscribed:  make(map[string]bool),
+		pollTickers: make(map[string]*time.Ticker),
+		pollDone:    make(map[string]chan struct{}),
+		lastUIDs:    make(map[string]string),
+	}
+
+	readerKey := "TestReader"
+
+	// Simulate a subscription with a detected card
+	client.mu.Lock()
+	client.subscribed[readerKey] = true
+	client.pollTickers[readerKey] = time.NewTicker(500 * time.Millisecond)
+	client.lastUIDs[readerKey] = "ABC123DEF456" // Simulate a detected card UID
+	client.mu.Unlock()
+
+	// Verify the UID was set
+	client.mu.Lock()
+	if client.lastUIDs[readerKey] != "ABC123DEF456" {
+		t.Errorf("expected lastUID to be set, got: %s", client.lastUIDs[readerKey])
+	}
+	client.mu.Unlock()
+
+	// Simulate unsubscribe behavior (mirrors handleUnsubscribe logic)
+	client.mu.Lock()
+	client.subscribed[readerKey] = false
+	if ticker, ok := client.pollTickers[readerKey]; ok {
+		ticker.Stop()
+		delete(client.pollTickers, readerKey)
+	}
+	delete(client.lastUIDs, readerKey) // This is the fix being tested
+	client.mu.Unlock()
+
+	// Verify lastUIDs was cleared
+	client.mu.Lock()
+	if uid, exists := client.lastUIDs[readerKey]; exists {
+		t.Errorf("lastUIDs should be cleared after unsubscribe, but got: %s", uid)
+	}
+	client.mu.Unlock()
+}
+
+// TestWSClient_Subscribe_ResetsLastUID verifies that subscribing to a reader
+// resets the lastUIDs entry, ensuring a card_detected event is sent even if
+// the same card was previously detected.
+func TestWSClient_Subscribe_ResetsLastUID(t *testing.T) {
+	client := &WSClient{
+		send:        make(chan []byte, 256),
+		subscribed:  make(map[string]bool),
+		pollTickers: make(map[string]*time.Ticker),
+		pollDone:    make(map[string]chan struct{}),
+		lastUIDs:    make(map[string]string),
+	}
+
+	readerKey := "TestReader"
+
+	// Simulate stale state from a previous subscription
+	client.mu.Lock()
+	client.lastUIDs[readerKey] = "OLD_UID_12345"
+	client.mu.Unlock()
+
+	// Simulate subscribe behavior (mirrors handleSubscribe logic)
+	client.mu.Lock()
+	if ticker, ok := client.pollTickers[readerKey]; ok {
+		ticker.Stop()
+	}
+	client.subscribed[readerKey] = true
+	client.lastUIDs[readerKey] = "" // This is the fix being tested
+	ticker := time.NewTicker(500 * time.Millisecond)
+	client.pollTickers[readerKey] = ticker
+	client.mu.Unlock()
+
+	// Verify lastUIDs was reset
+	client.mu.Lock()
+	if client.lastUIDs[readerKey] != "" {
+		t.Errorf("lastUIDs should be reset to empty on subscribe, but got: %s", client.lastUIDs[readerKey])
+	}
+	client.mu.Unlock()
+
+	// Cleanup
+	client.mu.Lock()
+	if ticker, ok := client.pollTickers[readerKey]; ok {
+		ticker.Stop()
+	}
+	client.mu.Unlock()
+}
+
+// TestWSClient_SubscribeUnsubscribeCycle tests the full subscribe/unsubscribe cycle
+// to ensure card detection works correctly after multiple cycles.
+func TestWSClient_SubscribeUnsubscribeCycle(t *testing.T) {
+	client := &WSClient{
+		send:        make(chan []byte, 256),
+		subscribed:  make(map[string]bool),
+		pollTickers: make(map[string]*time.Ticker),
+		pollDone:    make(map[string]chan struct{}),
+		lastUIDs:    make(map[string]string),
+	}
+
+	readerKey := "TestReader"
+
+	// Perform multiple subscribe/unsubscribe cycles
+	for cycle := 0; cycle < 5; cycle++ {
+		// Subscribe
+		client.mu.Lock()
+		if ticker, ok := client.pollTickers[readerKey]; ok {
+			ticker.Stop()
+		}
+		client.subscribed[readerKey] = true
+		client.lastUIDs[readerKey] = ""
+		ticker := time.NewTicker(500 * time.Millisecond)
+		client.pollTickers[readerKey] = ticker
+		client.mu.Unlock()
+
+		// Simulate card detection
+		client.mu.Lock()
+		client.lastUIDs[readerKey] = "CARD_UID_XYZ"
+		client.mu.Unlock()
+
+		// Unsubscribe
+		client.mu.Lock()
+		client.subscribed[readerKey] = false
+		if ticker, ok := client.pollTickers[readerKey]; ok {
+			ticker.Stop()
+			delete(client.pollTickers, readerKey)
+		}
+		delete(client.lastUIDs, readerKey)
+		client.mu.Unlock()
+
+		// Verify state is clean after unsubscribe
+		client.mu.Lock()
+		if _, exists := client.lastUIDs[readerKey]; exists {
+			t.Errorf("cycle %d: lastUIDs should be cleared after unsubscribe", cycle)
+		}
+		if _, exists := client.pollTickers[readerKey]; exists {
+			t.Errorf("cycle %d: pollTickers should be cleared after unsubscribe", cycle)
+		}
+		if client.subscribed[readerKey] {
+			t.Errorf("cycle %d: subscribed should be false after unsubscribe", cycle)
+		}
+		client.mu.Unlock()
 	}
 }

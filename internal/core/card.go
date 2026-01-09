@@ -145,40 +145,52 @@ func GetCardUID(readerName string) (*Card, error) {
 		}
 
 		// Detect card type by reading version info (for NTAG cards)
-		detectCardType(card, cardInfo)
+		// Returns true if detection was confident, false if it was a fallback guess
+		confident := detectCardType(card, cardInfo)
 
 		// Try to read NDEF data from the card
 		readNDEFData(card, cardInfo)
 
-		// Cache the detection result including NDEF data
-		cardDetectionCacheMu.Lock()
-		cardDetectionCache[uidHex] = &Card{
-			UID:         cardInfo.UID,
-			ATR:         cardInfo.ATR,
-			Type:        cardInfo.Type,
-			Protocol:    cardInfo.Protocol,
-			ProtocolISO: cardInfo.ProtocolISO,
-			Size:        cardInfo.Size,
-			Writable:    cardInfo.Writable,
-			Data:        cardInfo.Data,
-			DataType:    cardInfo.DataType,
-			URL:         cardInfo.URL,
+		// Only cache confident detection results.
+		// If detection was uncertain (e.g., card removed during detection),
+		// don't cache so next poll can retry with a fresh detection.
+		if confident {
+			cardDetectionCacheMu.Lock()
+			cardDetectionCache[uidHex] = &Card{
+				UID:         cardInfo.UID,
+				ATR:         cardInfo.ATR,
+				Type:        cardInfo.Type,
+				Protocol:    cardInfo.Protocol,
+				ProtocolISO: cardInfo.ProtocolISO,
+				Size:        cardInfo.Size,
+				Writable:    cardInfo.Writable,
+				Data:        cardInfo.Data,
+				DataType:    cardInfo.DataType,
+				URL:         cardInfo.URL,
+			}
+			cardDetectionCacheMu.Unlock()
+			logging.Debug(logging.CatCard, "Cached card detection result", map[string]any{
+				"uid":      uidHex,
+				"type":     cardInfo.Type,
+				"size":     cardInfo.Size,
+				"hasNDEF":  cardInfo.Data != "",
+				"dataType": cardInfo.DataType,
+			})
+		} else {
+			logging.Debug(logging.CatCard, "Detection uncertain, not caching", map[string]any{
+				"uid":  uidHex,
+				"type": cardInfo.Type,
+			})
 		}
-		cardDetectionCacheMu.Unlock()
-		logging.Debug(logging.CatCard, "Cached card detection result", map[string]any{
-			"uid":      uidHex,
-			"type":     cardInfo.Type,
-			"size":     cardInfo.Size,
-			"hasNDEF":  cardInfo.Data != "",
-			"dataType": cardInfo.DataType,
-		})
 	}
 
 	return cardInfo, nil
 }
 
 // detectCardType attempts to determine the card type (NTAG213/215/216, MIFARE, etc.)
-func detectCardType(card *scard.Card, cardInfo *Card) {
+// Returns true if detection was confident, false if it was a fallback guess.
+// Callers should NOT cache results when confident=false.
+func detectCardType(card *scard.Card, cardInfo *Card) (confident bool) {
 	// Log the final detection result when function returns
 	defer func() {
 		logging.Debug(logging.CatCard, "Card type detection complete", map[string]any{
@@ -258,17 +270,17 @@ func detectCardType(card *scard.Card, cardInfo *Card) {
 					cardInfo.Type = "NTAG213"
 					cardInfo.Size = 180
 					cardInfo.Writable = true
-					return
+					return true
 				case 0x11: // NTAG215
 					cardInfo.Type = "NTAG215"
 					cardInfo.Size = 504
 					cardInfo.Writable = true
-					return
+					return true
 				case 0x13: // NTAG216
 					cardInfo.Type = "NTAG216"
 					cardInfo.Size = 888
 					cardInfo.Writable = true
-					return
+					return true
 				}
 			} else if productType == 0x03 { // MIFARE Ultralight family
 				switch storageSize {
@@ -276,17 +288,17 @@ func detectCardType(card *scard.Card, cardInfo *Card) {
 					cardInfo.Type = "MIFARE Ultralight EV1"
 					cardInfo.Size = 48
 					cardInfo.Writable = true
-					return
+					return true
 				case 0x0E: // Ultralight EV1 MF0UL21 (128 bytes)
 					cardInfo.Type = "MIFARE Ultralight EV1"
 					cardInfo.Size = 128
 					cardInfo.Writable = true
-					return
+					return true
 				default: // Unknown Ultralight variant
 					cardInfo.Type = "MIFARE Ultralight"
 					cardInfo.Size = 64
 					cardInfo.Writable = true
-					return
+					return true
 				}
 			}
 		}
@@ -338,17 +350,17 @@ func detectCardType(card *scard.Card, cardInfo *Card) {
 					cardInfo.Type = "NTAG213"
 					cardInfo.Size = 180
 					cardInfo.Writable = true
-					return
+					return true
 				case 0x11: // NTAG215
 					cardInfo.Type = "NTAG215"
 					cardInfo.Size = 504
 					cardInfo.Writable = true
-					return
+					return true
 				case 0x13: // NTAG216
 					cardInfo.Type = "NTAG216"
 					cardInfo.Size = 888
 					cardInfo.Writable = true
-					return
+					return true
 				}
 			} else if productType == 0x03 { // MIFARE Ultralight family
 				switch storageSize {
@@ -356,17 +368,17 @@ func detectCardType(card *scard.Card, cardInfo *Card) {
 					cardInfo.Type = "MIFARE Ultralight EV1"
 					cardInfo.Size = 48
 					cardInfo.Writable = true
-					return
+					return true
 				case 0x0E: // Ultralight EV1 MF0UL21 (128 bytes)
 					cardInfo.Type = "MIFARE Ultralight EV1"
 					cardInfo.Size = 128
 					cardInfo.Writable = true
-					return
+					return true
 				default: // Unknown Ultralight variant
 					cardInfo.Type = "MIFARE Ultralight"
 					cardInfo.Size = 64
 					cardInfo.Writable = true
-					return
+					return true
 				}
 			}
 		}
@@ -400,28 +412,28 @@ func detectCardType(card *scard.Card, cardInfo *Card) {
 				cardInfo.Type = "MIFARE Ultralight"
 				cardInfo.Size = 48
 				cardInfo.Writable = true
-				return
+				return true
 			case 0x12: // 144 bytes -> NTAG213
 				// CC size 0x12 is too large for plain Ultralight (48 bytes max)
 				// so this must be NTAG213 regardless of GET_VERSION result
 				cardInfo.Type = "NTAG213"
 				cardInfo.Size = 180
 				cardInfo.Writable = true
-				return
+				return true
 			case 0x3E: // 496 bytes -> NTAG215
 				// CC size 0x3E is too large for plain Ultralight (64 bytes max)
 				// so this must be NTAG215 regardless of GET_VERSION result
 				cardInfo.Type = "NTAG215"
 				cardInfo.Size = 504
 				cardInfo.Writable = true
-				return
+				return true
 			case 0x6D: // 872 bytes -> NTAG216
 				// CC size 0x6D is too large for plain Ultralight (64 bytes max)
 				// so this must be NTAG216 regardless of GET_VERSION result
 				cardInfo.Type = "NTAG216"
 				cardInfo.Size = 888
 				cardInfo.Writable = true
-				return
+				return true
 			}
 		}
 	}
@@ -446,28 +458,28 @@ func detectCardType(card *scard.Card, cardInfo *Card) {
 				cardInfo.Type = "MIFARE Ultralight"
 				cardInfo.Size = 48
 				cardInfo.Writable = true
-				return
+				return true
 			case 0x12: // 144 bytes -> NTAG213
 				// CC size 0x12 is too large for plain Ultralight (48 bytes max)
 				// so this must be NTAG213 regardless of GET_VERSION result
 				cardInfo.Type = "NTAG213"
 				cardInfo.Size = 180
 				cardInfo.Writable = true
-				return
+				return true
 			case 0x3E: // 496 bytes -> NTAG215
 				// CC size 0x3E is too large for plain Ultralight (64 bytes max)
 				// so this must be NTAG215 regardless of GET_VERSION result
 				cardInfo.Type = "NTAG215"
 				cardInfo.Size = 504
 				cardInfo.Writable = true
-				return
+				return true
 			case 0x6D: // 872 bytes -> NTAG216
 				// CC size 0x6D is too large for plain Ultralight (64 bytes max)
 				// so this must be NTAG216 regardless of GET_VERSION result
 				cardInfo.Type = "NTAG216"
 				cardInfo.Size = 888
 				cardInfo.Writable = true
-				return
+				return true
 			}
 		}
 	}
@@ -491,7 +503,7 @@ func detectCardType(card *scard.Card, cardInfo *Card) {
 				cardInfo.Type = "MIFARE Classic"
 				cardInfo.Writable = true
 				cardInfo.Size = 1024
-				return
+				return true
 			}
 		}
 	}
@@ -510,7 +522,7 @@ func detectCardType(card *scard.Card, cardInfo *Card) {
 			cardInfo.Type = "NTAG216"
 			cardInfo.Size = 888
 			cardInfo.Writable = true
-			return
+			return true
 		}
 
 		// Try page 45 (NTAG215 has 135 pages, NTAG213 has 45, Ultralight has 16)
@@ -519,7 +531,7 @@ func detectCardType(card *scard.Card, cardInfo *Card) {
 			cardInfo.Type = "NTAG215"
 			cardInfo.Size = 504
 			cardInfo.Writable = true
-			return
+			return true
 		}
 
 		// Try page 16 (NTAG213 has 45 pages, Ultralight only has 16)
@@ -528,15 +540,16 @@ func detectCardType(card *scard.Card, cardInfo *Card) {
 			cardInfo.Type = "NTAG213"
 			cardInfo.Size = 180
 			cardInfo.Writable = true
-			return
+			return true
 		}
 
-		// All probes failed - this is likely actual MIFARE Ultralight
-		logging.Debug(logging.CatCard, "Memory probe: all high pages failed, assuming MIFARE Ultralight", nil)
+		// All probes failed - card was likely removed or unstable during detection.
+		// Return NOT confident so this guess doesn't get cached.
+		logging.Debug(logging.CatCard, "Memory probe: all high pages failed, detection uncertain", nil)
 		cardInfo.Type = "MIFARE Ultralight"
 		cardInfo.Size = 64
 		cardInfo.Writable = true
-		return
+		return false // NOT confident - don't cache this guess
 	}
 
 	// Method 4: Check ATR patterns for NTAG, MIFARE, and ISO 15693
@@ -567,28 +580,28 @@ func detectCardType(card *scard.Card, cardInfo *Card) {
 						case bit37 == 0 && bit36 == 1:
 							cardInfo.Type = "ICode SLIX2"
 							cardInfo.Size = 320 // SLIX2 has 2560 bits = 320 bytes
-							return
+							return true
 						case bit37 == 1 && bit36 == 0:
 							cardInfo.Type = "ICode SLIX"
 							cardInfo.Size = 896 // SLIX has 896 bytes
-							return
+							return true
 						case bit37 == 0 && bit36 == 0:
 							cardInfo.Type = "ICode SLI"
 							cardInfo.Size = 112 // SLI has 896 bits = 112 bytes
-							return
+							return true
 						}
 					}
 				}
 				// Fallback if we couldn't parse type bits
 				cardInfo.Type = "ICode SLIX"
 				cardInfo.Size = 896
-				return
+				return true
 			}
 			// Generic ISO 15693
 			cardInfo.Type = "ISO 15693"
 			cardInfo.Writable = true
 			cardInfo.Size = 1024
-			return
+			return true
 		}
 
 		// Both NTAG, MIFARE Ultralight, and MIFARE Classic can have ATRs starting with
@@ -603,7 +616,7 @@ func detectCardType(card *scard.Card, cardInfo *Card) {
 				cardInfo.Type = "MIFARE Classic"
 				cardInfo.Writable = true
 				cardInfo.Size = 1024
-				return
+				return true
 			}
 			// Note: For byte 14 == "03" (ISO 14443-3A Type 2 tags like NTAG/Ultralight),
 			// detection is handled by Method 3 (memory probe) above when GET_VERSION and CC both failed.
@@ -615,12 +628,13 @@ func detectCardType(card *scard.Card, cardInfo *Card) {
 		// Could be older MIFARE or unknown card type
 		cardInfo.Type = "Unknown ISO 14443/15693 tag"
 		cardInfo.Writable = true
-		return
+		return false // Not confident - don't cache
 	}
 
-	// Default fallback
+	// Default fallback - detection was inconclusive
 	cardInfo.Type = "NFC Tag (type unknown)"
 	cardInfo.Writable = true
+	return false // Not confident - don't cache
 }
 
 // Helper function to check if a string contains a substring

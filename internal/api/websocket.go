@@ -39,6 +39,7 @@ type WSClient struct {
 	closed      bool                      // True when client is disconnected
 	subscribed  map[string]bool           // Track subscribed readers for auto-read
 	pollTickers map[string]*time.Ticker
+	pollDone    map[string]chan struct{}  // Done channels to stop polling goroutines
 	lastUIDs    map[string]string // Track last seen UID per reader
 }
 
@@ -125,6 +126,7 @@ func InitWebSocket() http.HandlerFunc {
 			hub:         wsHub,
 			subscribed:  make(map[string]bool),
 			pollTickers: make(map[string]*time.Ticker),
+			pollDone:    make(map[string]chan struct{}),
 			lastUIDs:    make(map[string]string),
 		}
 
@@ -597,79 +599,123 @@ func (c *WSClient) handleSubscribe(id string, payload json.RawMessage) {
 	readerKey := readers[req.ReaderIndex].Name
 
 	c.mu.Lock()
+	// Stop existing polling goroutine if any by closing its done channel
+	if done, ok := c.pollDone[readerKey]; ok {
+		close(done)
+		delete(c.pollDone, readerKey)
+	}
 	// Stop existing ticker if any
 	if ticker, ok := c.pollTickers[readerKey]; ok {
 		ticker.Stop()
+		delete(c.pollTickers, readerKey)
 	}
 
 	c.subscribed[readerKey] = true
+	c.lastUIDs[readerKey] = "" // Reset to ensure fresh card detection
 	ticker := time.NewTicker(time.Duration(req.IntervalMs) * time.Millisecond)
+	done := make(chan struct{})
 	c.pollTickers[readerKey] = ticker
+	c.pollDone[readerKey] = done
 	c.mu.Unlock()
 
 	// Start polling goroutine
 	go func() {
 		defer logging.RecoverAndLog("WebSocket poll goroutine", false)
 
-		for range ticker.C {
-			c.mu.Lock()
-			if !c.subscribed[readerKey] {
-				c.mu.Unlock()
+		for {
+			select {
+			case <-done:
+				// Goroutine signaled to stop
 				return
-			}
-			c.mu.Unlock()
-
-			card, err := core.GetCardUID(readerKey)
-			if err != nil {
-				// Card removed - send event if we previously had a card
+			case <-ticker.C:
+				// Check if we should still be polling
 				c.mu.Lock()
-				if c.lastUIDs[readerKey] != "" {
-					c.lastUIDs[readerKey] = ""
+				if !c.subscribed[readerKey] {
 					c.mu.Unlock()
-					// NOTE: We intentionally do NOT clear the card detection cache here.
-					// The cache is keyed by UID, so if the same card is re-detected later,
-					// we can use cached detection results. If a different card is placed,
-					// it will have a different UID and get fresh detection.
-					// This prevents expensive re-detection after temporary reader failures.
-					logging.Info(logging.CatCard, "Card removed", map[string]any{
+					return
+				}
+				// Check if this done channel is still the active one
+				if c.pollDone[readerKey] != done {
+					c.mu.Unlock()
+					return
+				}
+				c.mu.Unlock()
+
+				// Use a timeout to prevent GetCardUID from blocking forever
+				// The PC/SC library can hang if the reader gets into a bad state
+				type cardResult struct {
+					card *core.Card
+					err  error
+				}
+				resultCh := make(chan cardResult, 1)
+				go func() {
+					c, e := core.GetCardUID(readerKey)
+					resultCh <- cardResult{c, e}
+				}()
+
+				var card *core.Card
+				var err error
+				select {
+				case result := <-resultCh:
+					card = result.card
+					err = result.err
+				case <-time.After(2 * time.Second):
+					err = fmt.Errorf("GetCardUID timeout after 2s")
+				case <-done:
+					return
+				}
+
+				if err != nil {
+					// Card removed - send event if we previously had a card
+					c.mu.Lock()
+					if c.lastUIDs[readerKey] != "" {
+						c.lastUIDs[readerKey] = ""
+						c.mu.Unlock()
+						// NOTE: We intentionally do NOT clear the card detection cache here.
+						// The cache is keyed by UID, so if the same card is re-detected later,
+						// we can use cached detection results. If a different card is placed,
+						// it will have a different UID and get fresh detection.
+						// This prevents expensive re-detection after temporary reader failures.
+						logging.Info(logging.CatCard, "Card removed", map[string]any{
+							"reader": readerKey,
+						})
+						c.sendResponse("", "card_removed", map[string]interface{}{
+							"readerIndex": req.ReaderIndex,
+							"readerName":  readerKey,
+						})
+					} else {
+						c.mu.Unlock()
+					}
+					continue
+				}
+
+				// Check if this is a new card
+				c.mu.Lock()
+				lastUID := c.lastUIDs[readerKey]
+				if card.UID != lastUID {
+					c.lastUIDs[readerKey] = card.UID
+					c.mu.Unlock()
+					logData := map[string]any{
 						"reader": readerKey,
-					})
-					c.sendResponse("", "card_removed", map[string]interface{}{
+						"uid":    card.UID,
+						"type":   card.Type,
+					}
+					if card.Data != "" {
+						logData["data"] = card.Data
+						logData["dataType"] = card.DataType
+					}
+					if card.URL != "" {
+						logData["url"] = card.URL
+					}
+					logging.Info(logging.CatCard, "Tag read", logData)
+					c.sendResponse("", "card_detected", map[string]interface{}{
 						"readerIndex": req.ReaderIndex,
 						"readerName":  readerKey,
+						"card":        card,
 					})
 				} else {
 					c.mu.Unlock()
 				}
-				continue
-			}
-
-			// Check if this is a new card
-			c.mu.Lock()
-			lastUID := c.lastUIDs[readerKey]
-			if card.UID != lastUID {
-				c.lastUIDs[readerKey] = card.UID
-				c.mu.Unlock()
-				logData := map[string]any{
-					"reader": readerKey,
-					"uid":    card.UID,
-					"type":   card.Type,
-				}
-				if card.Data != "" {
-					logData["data"] = card.Data
-					logData["dataType"] = card.DataType
-				}
-				if card.URL != "" {
-					logData["url"] = card.URL
-				}
-				logging.Info(logging.CatCard, "Tag read", logData)
-				c.sendResponse("", "card_detected", map[string]interface{}{
-					"readerIndex": req.ReaderIndex,
-					"readerName":  readerKey,
-					"card":        card,
-				})
-			} else {
-				c.mu.Unlock()
 			}
 		}
 	}()
@@ -703,10 +749,16 @@ func (c *WSClient) handleUnsubscribe(id string, payload json.RawMessage) {
 
 	c.mu.Lock()
 	c.subscribed[readerKey] = false
+	// Signal polling goroutine to stop
+	if done, ok := c.pollDone[readerKey]; ok {
+		close(done)
+		delete(c.pollDone, readerKey)
+	}
 	if ticker, ok := c.pollTickers[readerKey]; ok {
 		ticker.Stop()
 		delete(c.pollTickers, readerKey)
 	}
+	delete(c.lastUIDs, readerKey) // Clear cached UID to ensure fresh detection on re-subscribe
 	c.mu.Unlock()
 
 	logging.Info(logging.CatWebSocket, "Client unsubscribed from reader", map[string]any{
