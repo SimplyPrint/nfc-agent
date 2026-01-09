@@ -120,6 +120,19 @@ func NewMockCard(cardType string) *MockSmartCard {
 		card.uid, _ = hex.DecodeString("ff0f39c8d60000")
 		card.cardType = "MIFARE Ultralight"
 		card.setupMIFAREUltralightResponses()
+	case "NTAG216-MemoryProbe":
+		// Simulates NTAG216 where GET_VERSION fails but memory probe succeeds
+		// This tests the fallback detection path
+		card.atr, _ = hex.DecodeString("3b8f8001804f0ca0000003060300030000000068")
+		card.uid, _ = hex.DecodeString("04eeed91ca2a81") // Real NTAG216 UID from customer
+		card.cardType = "NTAG216"
+		card.setupNTAG216MemoryProbeResponses()
+	case "NTAG215-MemoryProbe":
+		// Simulates NTAG215 where GET_VERSION fails but memory probe succeeds
+		card.atr, _ = hex.DecodeString("3b8f8001804f0ca0000003060300030000000068")
+		card.uid, _ = hex.DecodeString("045d4737c62a81") // Real NTAG215 UID
+		card.cardType = "NTAG215"
+		card.setupNTAG215MemoryProbeResponses()
 	default:
 		card.atr, _ = hex.DecodeString("3b8f8001804f0ca0000003060300030000000068")
 		card.uid, _ = hex.DecodeString("04000000000000")
@@ -220,6 +233,47 @@ func (m *MockSmartCard) setupMIFAREUltralightResponses() {
 	// This simulates a tag without valid NDEF magic byte
 	m.responses["ffb0000310"] = []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x90, 0x00}
 	m.responses["ffb0000110"] = []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x90, 0x00}
+}
+
+// setupNTAG216MemoryProbeResponses simulates an NTAG216 where GET_VERSION fails
+// but memory probe succeeds (can read page 135). This tests the fallback detection.
+func (m *MockSmartCard) setupNTAG216MemoryProbeResponses() {
+	uidResponse := append(m.uid, 0x90, 0x00)
+	m.responses["ffca000000"] = uidResponse
+
+	// GET_VERSION fails with 6300 (simulates intermittent communication failure)
+	m.responses["ff000000026000"] = []byte{0x63, 0x00}
+	m.responses["ff0000000160"] = []byte{0x63, 0x00}
+
+	// CC reading fails - no valid NDEF magic byte (simulates CC read failure)
+	m.responses["ffb0000310"] = []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x90, 0x00}
+	m.responses["ffb0000110"] = []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x90, 0x00}
+
+	// Memory probe: page 135 succeeds (NTAG216 has 231 pages)
+	// Read page 135: FF B0 00 87 04
+	m.responses["ffb0008704"] = []byte{0x00, 0x00, 0x00, 0x00, 0x90, 0x00}
+}
+
+// setupNTAG215MemoryProbeResponses simulates an NTAG215 where GET_VERSION fails
+// but memory probe succeeds (page 135 fails, page 45 succeeds).
+func (m *MockSmartCard) setupNTAG215MemoryProbeResponses() {
+	uidResponse := append(m.uid, 0x90, 0x00)
+	m.responses["ffca000000"] = uidResponse
+
+	// GET_VERSION fails with 6300
+	m.responses["ff000000026000"] = []byte{0x63, 0x00}
+	m.responses["ff0000000160"] = []byte{0x63, 0x00}
+
+	// CC reading fails
+	m.responses["ffb0000310"] = []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x90, 0x00}
+	m.responses["ffb0000110"] = []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x90, 0x00}
+
+	// Memory probe: page 135 fails (NTAG215 only has 135 pages, 0-134)
+	m.responses["ffb0008704"] = []byte{0x6A, 0x82} // Page out of range
+
+	// Memory probe: page 45 succeeds (NTAG215 has pages 0-134)
+	// Read page 45: FF B0 00 2D 04
+	m.responses["ffb0002d04"] = []byte{0x00, 0x00, 0x00, 0x00, 0x90, 0x00}
 }
 
 // WithNDEFData sets NDEF data on the mock card

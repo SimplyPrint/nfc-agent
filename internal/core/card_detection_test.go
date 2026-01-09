@@ -504,6 +504,90 @@ func TestICodeSLIXDetection(t *testing.T) {
 	}
 }
 
+// TestMemoryProbeDetection tests that cards are correctly identified via memory probe
+// when GET_VERSION and CC detection both fail. This is critical for NTAG cards
+// where GET_VERSION fails intermittently due to communication issues.
+func TestMemoryProbeDetection(t *testing.T) {
+	tests := []struct {
+		name         string
+		mockCardType string
+		expectedType string
+		expectedSize int
+	}{
+		{
+			name:         "NTAG216 detected via memory probe (page 135 readable)",
+			mockCardType: "NTAG216-MemoryProbe",
+			expectedType: "NTAG216",
+			expectedSize: 888,
+		},
+		{
+			name:         "NTAG215 detected via memory probe (page 45 readable, page 135 fails)",
+			mockCardType: "NTAG215-MemoryProbe",
+			expectedType: "NTAG215",
+			expectedSize: 504,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			card := NewMockCard(tt.mockCardType)
+
+			// Verify GET_VERSION fails (returns 6300)
+			getVersionCmd := []byte{0xFF, 0x00, 0x00, 0x00, 0x02, 0x60, 0x00}
+			resp, err := card.Transmit(getVersionCmd)
+			if err != nil {
+				t.Fatalf("Transmit failed: %v", err)
+			}
+			if len(resp) >= 2 && resp[len(resp)-2] == 0x90 && resp[len(resp)-1] == 0x00 {
+				t.Error("GET_VERSION should fail for memory probe test cards")
+			}
+
+			// Verify CC has no valid NDEF magic byte
+			ccReadCmd := []byte{0xFF, 0xB0, 0x00, 0x03, 0x10}
+			resp, err = card.Transmit(ccReadCmd)
+			if err != nil {
+				t.Fatalf("CC read failed: %v", err)
+			}
+			if len(resp) >= 1 && resp[0] == 0xE1 {
+				t.Error("CC should not have valid NDEF magic byte for memory probe test")
+			}
+
+			// Verify the expected memory probe page succeeds
+			if tt.expectedType == "NTAG216" {
+				// Page 135 should be readable
+				readPage135 := []byte{0xFF, 0xB0, 0x00, 0x87, 0x04}
+				resp, err = card.Transmit(readPage135)
+				if err != nil {
+					t.Fatalf("Page 135 read failed: %v", err)
+				}
+				if len(resp) < 2 || resp[len(resp)-2] != 0x90 || resp[len(resp)-1] != 0x00 {
+					t.Error("Page 135 should be readable for NTAG216")
+				}
+			} else if tt.expectedType == "NTAG215" {
+				// Page 135 should fail (NTAG215 only has 135 pages, 0-134)
+				readPage135 := []byte{0xFF, 0xB0, 0x00, 0x87, 0x04}
+				resp, err = card.Transmit(readPage135)
+				if err != nil {
+					t.Fatalf("Page 135 read command failed: %v", err)
+				}
+				if len(resp) >= 2 && resp[len(resp)-2] == 0x90 && resp[len(resp)-1] == 0x00 {
+					t.Error("Page 135 should NOT be readable for NTAG215")
+				}
+
+				// Page 45 should be readable
+				readPage45 := []byte{0xFF, 0xB0, 0x00, 0x2D, 0x04}
+				resp, err = card.Transmit(readPage45)
+				if err != nil {
+					t.Fatalf("Page 45 read failed: %v", err)
+				}
+				if len(resp) < 2 || resp[len(resp)-2] != 0x90 || resp[len(resp)-1] != 0x00 {
+					t.Error("Page 45 should be readable for NTAG215")
+				}
+			}
+		})
+	}
+}
+
 // hexEncodeString is a helper to encode bytes to hex string
 func hexEncodeString(b []byte) string {
 	const hexChars = "0123456789abcdef"

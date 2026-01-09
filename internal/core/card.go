@@ -416,7 +416,50 @@ func detectCardType(card *scard.Card, cardInfo *Card) {
 		}
 	}
 
-	// Method 3: Check ATR patterns for NTAG, MIFARE, and ISO 15693
+	// Method 3: Memory probe - determine card capacity by reading high page numbers
+	// This is used when GET_VERSION and CC detection both failed but ATR suggests ISO 14443-3A Type 2.
+	// Unlike ICode SLIX (ISO 15693) which has type indicator bits in the UID, NTAG21x cards
+	// follow ISO 14443-3A which has NO type identifiers in the UID. We must probe actual memory.
+	// Page boundaries: Ultralight=16, NTAG213=45, NTAG215=135, NTAG216=231
+	if contains(atr, "03060300") && !ccDetectionFoundNDEF && !getVersionSucceeded {
+		logging.Debug(logging.CatCard, "Starting memory probe detection", nil)
+
+		// Try page 135 (only NTAG216 has this - it has 231 pages)
+		if _, err := readNTAGPage(card, 135); err == nil {
+			logging.Debug(logging.CatCard, "Memory probe: page 135 readable, detected NTAG216", nil)
+			cardInfo.Type = "NTAG216"
+			cardInfo.Size = 888
+			cardInfo.Writable = true
+			return
+		}
+
+		// Try page 45 (NTAG215 has 135 pages, NTAG213 has 45, Ultralight has 16)
+		if _, err := readNTAGPage(card, 45); err == nil {
+			logging.Debug(logging.CatCard, "Memory probe: page 45 readable, detected NTAG215", nil)
+			cardInfo.Type = "NTAG215"
+			cardInfo.Size = 504
+			cardInfo.Writable = true
+			return
+		}
+
+		// Try page 16 (NTAG213 has 45 pages, Ultralight only has 16)
+		if _, err := readNTAGPage(card, 16); err == nil {
+			logging.Debug(logging.CatCard, "Memory probe: page 16 readable, detected NTAG213", nil)
+			cardInfo.Type = "NTAG213"
+			cardInfo.Size = 180
+			cardInfo.Writable = true
+			return
+		}
+
+		// All probes failed - this is likely actual MIFARE Ultralight
+		logging.Debug(logging.CatCard, "Memory probe: all high pages failed, assuming MIFARE Ultralight", nil)
+		cardInfo.Type = "MIFARE Ultralight"
+		cardInfo.Size = 64
+		cardInfo.Writable = true
+		return
+	}
+
+	// Method 4: Check ATR patterns for NTAG, MIFARE, and ISO 15693
 	// Note: atr is already set at the start of detectCardType for protocol detection
 	if len(atr) >= 30 && (atr[0:4] == "3b8f" || atr[0:4] == "3b8b") {
 		// Check for ISO 15693 cards (ICode SLI, ICode Slix, ICode Slix 2)
@@ -481,20 +524,11 @@ func detectCardType(card *scard.Card, cardInfo *Card) {
 				cardInfo.Writable = true
 				cardInfo.Size = 1024
 				return
-			} else if atr[28:30] == "03" {
-				// ISO 14443-3A Type 2 tag (could be NTAG or MIFARE Ultralight)
-				// If we found valid NDEF CC earlier, CC detection should have identified it.
-				// If we reach here with valid NDEF, it means CC size didn't match known types.
-				// If CC detection failed (no valid NDEF), this is likely plain MIFARE Ultralight
-				// without NDEF formatting, or with non-standard CC.
-				if !ccDetectionFoundNDEF && !getVersionSucceeded {
-					cardInfo.Type = "MIFARE Ultralight"
-					cardInfo.Size = 64 // Plain Ultralight has 64 bytes (48 user bytes)
-					cardInfo.Writable = true
-					return
-				}
-				// Otherwise report unknown - we have NDEF but unknown CC size
 			}
+			// Note: For byte 14 == "03" (ISO 14443-3A Type 2 tags like NTAG/Ultralight),
+			// detection is handled by Method 3 (memory probe) above when GET_VERSION and CC both failed.
+			// If we reach here, either GET_VERSION or CC succeeded but didn't identify the type,
+			// which means the CC size didn't match known types - fall through to unknown.
 		}
 
 		// Fallback: if ATR starts with 3b8f/3b8b but doesn't match above patterns
