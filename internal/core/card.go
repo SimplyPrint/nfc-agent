@@ -33,8 +33,9 @@ type Card struct {
 }
 
 // cardDetectionCache stores card detection results keyed by UID to avoid
-// re-running expensive detection (GET_VERSION, CC reads, memory probes)
-// on every poll cycle. The cache is cleared when a card is removed.
+// re-running expensive detection (GET_VERSION, CC reads, memory probes, NDEF reads)
+// on every poll cycle. This dramatically reduces reader command traffic and prevents
+// readers like ACR1252 from becoming unresponsive due to rapid command sequences.
 var (
 	cardDetectionCache   = make(map[string]*Card)
 	cardDetectionCacheMu sync.RWMutex
@@ -119,7 +120,10 @@ func GetCardUID(readerName string) (*Card, error) {
 
 	var cardInfo *Card
 	if found {
-		// Use cached detection results - only update ATR in case it changed
+		// Use cached detection results including NDEF data.
+		// This dramatically reduces reader command traffic - we only detect once
+		// per card UID, not on every 500ms poll. Critical for readers like ACR1252
+		// that become unresponsive with rapid command sequences.
 		logging.Debug(logging.CatCard, "Using cached card detection", map[string]any{"uid": uidHex})
 		cardInfo = &Card{
 			UID:         cachedCard.UID,
@@ -129,6 +133,9 @@ func GetCardUID(readerName string) (*Card, error) {
 			ProtocolISO: cachedCard.ProtocolISO,
 			Size:        cachedCard.Size,
 			Writable:    cachedCard.Writable,
+			Data:        cachedCard.Data,
+			DataType:    cachedCard.DataType,
+			URL:         cachedCard.URL,
 		}
 	} else {
 		// No cache - run full detection
@@ -140,7 +147,10 @@ func GetCardUID(readerName string) (*Card, error) {
 		// Detect card type by reading version info (for NTAG cards)
 		detectCardType(card, cardInfo)
 
-		// Cache the detection result (excluding NDEF data which may change)
+		// Try to read NDEF data from the card
+		readNDEFData(card, cardInfo)
+
+		// Cache the detection result including NDEF data
 		cardDetectionCacheMu.Lock()
 		cardDetectionCache[uidHex] = &Card{
 			UID:         cardInfo.UID,
@@ -150,17 +160,19 @@ func GetCardUID(readerName string) (*Card, error) {
 			ProtocolISO: cardInfo.ProtocolISO,
 			Size:        cardInfo.Size,
 			Writable:    cardInfo.Writable,
+			Data:        cardInfo.Data,
+			DataType:    cardInfo.DataType,
+			URL:         cardInfo.URL,
 		}
 		cardDetectionCacheMu.Unlock()
 		logging.Debug(logging.CatCard, "Cached card detection result", map[string]any{
-			"uid":  uidHex,
-			"type": cardInfo.Type,
-			"size": cardInfo.Size,
+			"uid":      uidHex,
+			"type":     cardInfo.Type,
+			"size":     cardInfo.Size,
+			"hasNDEF":  cardInfo.Data != "",
+			"dataType": cardInfo.DataType,
 		})
 	}
-
-	// Try to read NDEF data from the card
-	readNDEFData(card, cardInfo)
 
 	return cardInfo, nil
 }
