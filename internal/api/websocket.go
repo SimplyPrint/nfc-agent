@@ -612,10 +612,14 @@ func (c *WSClient) handleSubscribe(id string, payload json.RawMessage) {
 				// Card removed - send event if we previously had a card
 				c.mu.Lock()
 				if c.lastUIDs[readerKey] != "" {
+					removedUID := c.lastUIDs[readerKey]
 					c.lastUIDs[readerKey] = ""
 					c.mu.Unlock()
+					// Clear card detection cache so card is re-detected next time
+					core.ClearCardCache(removedUID)
 					logging.Info(logging.CatCard, "Card removed", map[string]any{
 						"reader": readerKey,
+						"uid":    removedUID,
 					})
 					c.sendResponse("", "card_removed", map[string]interface{}{
 						"readerIndex": req.ReaderIndex,

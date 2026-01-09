@@ -32,6 +32,31 @@ type Card struct {
 	DataType    string `json:"dataType,omitempty"`    // Type of data: "text", "json", "binary", or "unknown"
 }
 
+// cardDetectionCache stores card detection results keyed by UID to avoid
+// re-running expensive detection (GET_VERSION, CC reads, memory probes)
+// on every poll cycle. The cache is cleared when a card is removed.
+var (
+	cardDetectionCache   = make(map[string]*Card)
+	cardDetectionCacheMu sync.RWMutex
+)
+
+// ClearCardCache removes a card from the detection cache.
+// Called when a card is removed from the reader.
+func ClearCardCache(uid string) {
+	cardDetectionCacheMu.Lock()
+	delete(cardDetectionCache, uid)
+	cardDetectionCacheMu.Unlock()
+	logging.Debug(logging.CatCard, "Cleared card detection cache", map[string]any{"uid": uid})
+}
+
+// ClearAllCardCache clears the entire card detection cache.
+func ClearAllCardCache() {
+	cardDetectionCacheMu.Lock()
+	cardDetectionCache = make(map[string]*Card)
+	cardDetectionCacheMu.Unlock()
+	logging.Debug(logging.CatCard, "Cleared all card detection cache", nil)
+}
+
 // GetCardUID connects to the specified reader and attempts to read the card UID.
 // Returns an error if no card is present or if reading fails.
 func GetCardUID(readerName string) (*Card, error) {
@@ -82,14 +107,57 @@ func GetCardUID(readerName string) (*Card, error) {
 
 	// UID is everything except the last 2 bytes (status words)
 	uid := rsp[:len(rsp)-2]
+	uidHex := hex.EncodeToString(uid)
 
-	cardInfo := &Card{
-		UID: hex.EncodeToString(uid),
-		ATR: hex.EncodeToString(status.Atr),
+	// Check cache for existing detection results to avoid re-running expensive
+	// detection commands (GET_VERSION, CC reads, memory probes) on every poll.
+	// This significantly reduces reader command traffic and prevents reader
+	// unresponsiveness on readers like ACR1252 that struggle with rapid commands.
+	cardDetectionCacheMu.RLock()
+	cachedCard, found := cardDetectionCache[uidHex]
+	cardDetectionCacheMu.RUnlock()
+
+	var cardInfo *Card
+	if found {
+		// Use cached detection results - only update ATR in case it changed
+		logging.Debug(logging.CatCard, "Using cached card detection", map[string]any{"uid": uidHex})
+		cardInfo = &Card{
+			UID:         cachedCard.UID,
+			ATR:         hex.EncodeToString(status.Atr),
+			Type:        cachedCard.Type,
+			Protocol:    cachedCard.Protocol,
+			ProtocolISO: cachedCard.ProtocolISO,
+			Size:        cachedCard.Size,
+			Writable:    cachedCard.Writable,
+		}
+	} else {
+		// No cache - run full detection
+		cardInfo = &Card{
+			UID: uidHex,
+			ATR: hex.EncodeToString(status.Atr),
+		}
+
+		// Detect card type by reading version info (for NTAG cards)
+		detectCardType(card, cardInfo)
+
+		// Cache the detection result (excluding NDEF data which may change)
+		cardDetectionCacheMu.Lock()
+		cardDetectionCache[uidHex] = &Card{
+			UID:         cardInfo.UID,
+			ATR:         cardInfo.ATR,
+			Type:        cardInfo.Type,
+			Protocol:    cardInfo.Protocol,
+			ProtocolISO: cardInfo.ProtocolISO,
+			Size:        cardInfo.Size,
+			Writable:    cardInfo.Writable,
+		}
+		cardDetectionCacheMu.Unlock()
+		logging.Debug(logging.CatCard, "Cached card detection result", map[string]any{
+			"uid":  uidHex,
+			"type": cardInfo.Type,
+			"size": cardInfo.Size,
+		})
 	}
-
-	// Detect card type by reading version info (for NTAG cards)
-	detectCardType(card, cardInfo)
 
 	// Try to read NDEF data from the card
 	readNDEFData(card, cardInfo)
