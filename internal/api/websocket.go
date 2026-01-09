@@ -283,6 +283,10 @@ func (c *WSClient) sendResponse(id string, msgType string, payload interface{}) 
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
+		logging.Debug(logging.CatWebSocket, "Message not sent (client closed)", map[string]any{
+			"type": msgType,
+			"id":   id,
+		})
 		return
 	}
 	c.mu.Unlock()
@@ -298,8 +302,16 @@ func (c *WSClient) sendResponse(id string, msgType string, payload interface{}) 
 	// Use non-blocking send to avoid panic if channel closes between check and send
 	select {
 	case c.send <- responseBytes:
+		logging.Debug(logging.CatWebSocket, "Message queued", map[string]any{
+			"type": msgType,
+			"id":   id,
+		})
 	default:
 		// Channel full or closed, drop the message
+		logging.Warn(logging.CatWebSocket, "Message DROPPED (channel full/closed)", map[string]any{
+			"type": msgType,
+			"id":   id,
+		})
 	}
 }
 
