@@ -129,7 +129,7 @@ func TestSettingsJSONFormat(t *testing.T) {
 		t.Fatalf("Failed to marshal: %v", err)
 	}
 
-	expected := `{"crashReporting":true}`
+	expected := `{"crashReporting":true,"extendedLogging":false}`
 	if string(data) != expected {
 		t.Errorf("JSON format mismatch: got %s, want %s", string(data), expected)
 	}
