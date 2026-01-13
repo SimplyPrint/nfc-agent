@@ -152,23 +152,45 @@ func GetCardUID(readerName string) (*Card, error) {
 		// try a full disconnect/reconnect and memory-probe-only detection.
 		// This handles cases where GET_VERSION corrupts the reader state (common on Windows + ACR1552).
 		atrHex := cardInfo.ATR
+		cardValid := true
 		if !confident && len(atrHex) >= 30 && contains(atrHex, "03060300") {
 			logging.Debug(logging.CatCard, "Detection uncertain, trying full reconnect for memory probe", nil)
 			card.Disconnect(scard.ResetCard)
+			cardValid = false
 
-			// Fresh connect
+			// Fresh connect - on Windows, may need to release and re-establish context
 			newCard, err := ctx.Connect(readerName, scard.ShareShared, scard.ProtocolAny)
-			if err == nil {
+			if err != nil {
+				logging.Debug(logging.CatCard, "Reconnect failed, trying fresh context", map[string]any{
+					"error": err.Error(),
+				})
+				// Try with a completely fresh context
+				ctx.Release()
+				newCtx, err := scard.EstablishContext()
+				if err == nil {
+					ctx = newCtx
+					newCard, err = ctx.Connect(readerName, scard.ShareShared, scard.ProtocolAny)
+				}
+			}
+
+			if err == nil && newCard != nil {
 				card = newCard
+				cardValid = true
 				// Try memory probe only (skip GET_VERSION which corrupts state)
 				if probeNTAGMemory(card, cardInfo) {
 					confident = true
 				}
+			} else {
+				logging.Debug(logging.CatCard, "Full reconnect failed, card handle invalid", map[string]any{
+					"error": err.Error(),
+				})
 			}
 		}
 
-		// Try to read NDEF data from the card
-		readNDEFData(card, cardInfo)
+		// Try to read NDEF data from the card (only if handle is valid)
+		if cardValid {
+			readNDEFData(card, cardInfo)
+		}
 
 		// Only cache confident detection results.
 		// If detection was uncertain (e.g., card removed during detection),
