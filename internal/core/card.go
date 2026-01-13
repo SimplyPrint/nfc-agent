@@ -148,6 +148,25 @@ func GetCardUID(readerName string) (*Card, error) {
 		// Returns true if detection was confident, false if it was a fallback guess
 		confident := detectCardType(card, cardInfo)
 
+		// If detection was uncertain and ATR suggests NTAG/Ultralight family,
+		// try a full disconnect/reconnect and memory-probe-only detection.
+		// This handles cases where GET_VERSION corrupts the reader state (common on Windows + ACR1552).
+		atrHex := cardInfo.ATR
+		if !confident && len(atrHex) >= 30 && contains(atrHex, "03060300") {
+			logging.Debug(logging.CatCard, "Detection uncertain, trying full reconnect for memory probe", nil)
+			card.Disconnect(scard.ResetCard)
+
+			// Fresh connect
+			newCard, err := ctx.Connect(readerName, scard.ShareShared, scard.ProtocolAny)
+			if err == nil {
+				card = newCard
+				// Try memory probe only (skip GET_VERSION which corrupts state)
+				if probeNTAGMemory(card, cardInfo) {
+					confident = true
+				}
+			}
+		}
+
 		// Try to read NDEF data from the card
 		readNDEFData(card, cardInfo)
 
@@ -1281,6 +1300,43 @@ func readNTAGPage(card *scard.Card, pageNum int) ([]byte, error) {
 	}
 
 	return nil, fmt.Errorf("read failed with status: %02X %02X", rsp[len(rsp)-2], rsp[len(rsp)-1])
+}
+
+// probeNTAGMemory performs memory-probe-only detection for NTAG cards.
+// This is used as a fallback when GET_VERSION corrupts the reader state.
+// Returns true if detection succeeded, false otherwise.
+func probeNTAGMemory(card *scard.Card, cardInfo *Card) bool {
+	logging.Debug(logging.CatCard, "Memory probe retry after reconnect", nil)
+
+	// Try page 135 (only NTAG216 has this - it has 231 pages)
+	if _, err := readNTAGPage(card, 135); err == nil {
+		logging.Debug(logging.CatCard, "Memory probe: page 135 readable, detected NTAG216", nil)
+		cardInfo.Type = "NTAG216"
+		cardInfo.Size = 888
+		cardInfo.Writable = true
+		return true
+	}
+
+	// Try page 45 (NTAG215 has 135 pages, NTAG213 has 45, Ultralight has 16)
+	if _, err := readNTAGPage(card, 45); err == nil {
+		logging.Debug(logging.CatCard, "Memory probe: page 45 readable, detected NTAG215", nil)
+		cardInfo.Type = "NTAG215"
+		cardInfo.Size = 504
+		cardInfo.Writable = true
+		return true
+	}
+
+	// Try page 16 (NTAG213 has 45 pages, Ultralight only has 16)
+	if _, err := readNTAGPage(card, 16); err == nil {
+		logging.Debug(logging.CatCard, "Memory probe: page 16 readable, detected NTAG213", nil)
+		cardInfo.Type = "NTAG213"
+		cardInfo.Size = 180
+		cardInfo.Writable = true
+		return true
+	}
+
+	logging.Debug(logging.CatCard, "Memory probe retry: all pages failed", nil)
+	return false
 }
 
 // readNDEFData attempts to read NDEF data from a card
