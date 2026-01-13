@@ -516,7 +516,20 @@ func detectCardType(card *scard.Card, cardInfo *Card) (confident bool) {
 	if contains(atr, "03060300") && !ccDetectionFoundNDEF && !getVersionSucceeded {
 		logging.Debug(logging.CatCard, "Starting memory probe detection", nil)
 
+		// Helper to reset reader state before each probe.
+		// GET_VERSION failures and failed out-of-range page reads on some readers
+		// (e.g., ACR1552) can leave the reader in a corrupted state where subsequent
+		// commands return "card removed" errors. Reconnecting clears this state.
+		reconnect := func() {
+			if err := card.Reconnect(scard.ShareShared, scard.ProtocolAny, scard.ResetCard); err != nil {
+				logging.Debug(logging.CatCard, "Reader reconnect failed", map[string]any{
+					"error": err.Error(),
+				})
+			}
+		}
+
 		// Try page 135 (only NTAG216 has this - it has 231 pages)
+		reconnect()
 		if _, err := readNTAGPage(card, 135); err == nil {
 			logging.Debug(logging.CatCard, "Memory probe: page 135 readable, detected NTAG216", nil)
 			cardInfo.Type = "NTAG216"
@@ -526,6 +539,7 @@ func detectCardType(card *scard.Card, cardInfo *Card) (confident bool) {
 		}
 
 		// Try page 45 (NTAG215 has 135 pages, NTAG213 has 45, Ultralight has 16)
+		reconnect()
 		if _, err := readNTAGPage(card, 45); err == nil {
 			logging.Debug(logging.CatCard, "Memory probe: page 45 readable, detected NTAG215", nil)
 			cardInfo.Type = "NTAG215"
@@ -535,6 +549,7 @@ func detectCardType(card *scard.Card, cardInfo *Card) (confident bool) {
 		}
 
 		// Try page 16 (NTAG213 has 45 pages, Ultralight only has 16)
+		reconnect()
 		if _, err := readNTAGPage(card, 16); err == nil {
 			logging.Debug(logging.CatCard, "Memory probe: page 16 readable, detected NTAG213", nil)
 			cardInfo.Type = "NTAG213"
