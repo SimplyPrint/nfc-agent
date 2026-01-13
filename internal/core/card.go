@@ -159,30 +159,34 @@ func GetCardUID(readerName string) (*Card, error) {
 			cardValid = false
 
 			// Fresh connect - on Windows, may need to release and re-establish context
-			newCard, err := ctx.Connect(readerName, scard.ShareShared, scard.ProtocolAny)
-			if err != nil {
+			var newCard *scard.Card
+			var connectErr error
+			newCard, connectErr = ctx.Connect(readerName, scard.ShareShared, scard.ProtocolAny)
+			if connectErr != nil {
 				logging.Debug(logging.CatCard, "Reconnect failed, trying fresh context", map[string]any{
-					"error": err.Error(),
+					"error": connectErr.Error(),
 				})
 				// Try with a completely fresh context
 				ctx.Release()
-				newCtx, err := scard.EstablishContext()
-				if err == nil {
+				newCtx, ctxErr := scard.EstablishContext()
+				if ctxErr == nil {
 					ctx = newCtx
-					newCard, err = ctx.Connect(readerName, scard.ShareShared, scard.ProtocolAny)
+					newCard, connectErr = ctx.Connect(readerName, scard.ShareShared, scard.ProtocolAny)
+				} else {
+					connectErr = ctxErr
 				}
 			}
 
-			if err == nil && newCard != nil {
+			if connectErr == nil && newCard != nil {
 				card = newCard
 				cardValid = true
 				// Try memory probe only (skip GET_VERSION which corrupts state)
 				if probeNTAGMemory(card, cardInfo) {
 					confident = true
 				}
-			} else {
+			} else if connectErr != nil {
 				logging.Debug(logging.CatCard, "Full reconnect failed, card handle invalid", map[string]any{
-					"error": err.Error(),
+					"error": connectErr.Error(),
 				})
 			}
 		}
