@@ -641,6 +641,16 @@
                     <span class="toggle-slider"></span>
                 </label>
             </div>
+            <div class="toggle-row" style="border-top: 1px solid var(--border); margin-top: 8px; padding-top: 16px;">
+                <div class="toggle-label">
+                    <span class="toggle-label-text">Extended logging</span>
+                    <span class="toggle-label-desc" id="extended-logging-status">Loading...</span>
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="extended-logging-toggle" onchange="toggleExtendedLogging()" disabled>
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
         </div>
 
         <div class="card" id="readers">
@@ -1120,28 +1130,49 @@
             }
         }
 
-        // Crash reporting functions
-        async function fetchCrashReportingStatus() {
+        // Settings functions (crash reporting, extended logging)
+        async function fetchSettingsStatus() {
             try {
                 const res = await fetch('/v1/settings');
                 const data = await res.json();
 
-                const toggle = document.getElementById('crash-reporting-toggle');
-                const status = document.getElementById('crash-reporting-status');
+                // Crash reporting
+                const crashToggle = document.getElementById('crash-reporting-toggle');
+                const crashStatus = document.getElementById('crash-reporting-status');
 
-                toggle.checked = data.crashReporting;
-                toggle.disabled = false;
-                status.style.color = '';
+                crashToggle.checked = data.crashReporting;
+                crashToggle.disabled = false;
+                crashStatus.style.color = '';
 
                 if (data.crashReporting) {
-                    status.textContent = 'Enabled — sent via Sentry to help fix bugs';
+                    crashStatus.textContent = 'Enabled — sent via Sentry to help fix bugs';
                 } else {
-                    status.textContent = 'Disabled — crash reports stay local only';
+                    crashStatus.textContent = 'Disabled — crash reports stay local only';
+                }
+
+                // Extended logging
+                const extToggle = document.getElementById('extended-logging-toggle');
+                const extStatus = document.getElementById('extended-logging-status');
+
+                extToggle.checked = data.extendedLogging;
+                extToggle.disabled = false;
+                extStatus.style.color = '';
+
+                if (data.extendedLogging) {
+                    extStatus.textContent = 'Enabled — logs all APDU commands for debugging';
+                } else {
+                    extStatus.textContent = 'Disabled — normal logging only';
                 }
             } catch (error) {
-                console.error('Failed to fetch crash reporting status:', error);
+                console.error('Failed to fetch settings:', error);
                 document.getElementById('crash-reporting-status').textContent = 'Unable to check status';
+                document.getElementById('extended-logging-status').textContent = 'Unable to check status';
             }
+        }
+
+        // Keep old name for compatibility
+        async function fetchCrashReportingStatus() {
+            return fetchSettingsStatus();
         }
 
         async function toggleCrashReporting() {
@@ -1173,6 +1204,43 @@
                 }
             } catch (error) {
                 console.error('Failed to toggle crash reporting:', error);
+                status.textContent = 'Error: ' + error.message;
+                status.style.color = '';
+                // Revert toggle state
+                toggle.checked = !enabled;
+            } finally {
+                toggle.disabled = false;
+            }
+        }
+
+        async function toggleExtendedLogging() {
+            const toggle = document.getElementById('extended-logging-toggle');
+            const status = document.getElementById('extended-logging-status');
+            const enabled = toggle.checked;
+
+            toggle.disabled = true;
+            status.textContent = enabled ? 'Enabling...' : 'Disabling...';
+
+            try {
+                const res = await fetch('/v1/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ extendedLogging: enabled })
+                });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    throw new Error(data.error || 'Failed to update setting');
+                }
+
+                if (data.extendedLogging) {
+                    status.textContent = 'Enabled — logs all APDU commands for debugging';
+                } else {
+                    status.textContent = 'Disabled — normal logging only';
+                }
+                status.style.color = 'var(--success)';
+            } catch (error) {
+                console.error('Failed to toggle extended logging:', error);
                 status.textContent = 'Error: ' + error.message;
                 status.style.color = '';
                 // Revert toggle state

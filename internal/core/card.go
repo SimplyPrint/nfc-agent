@@ -15,6 +15,7 @@ import (
 	"github.com/SimplyPrint/nfc-agent/internal/logging"
 	"github.com/SimplyPrint/nfc-agent/internal/openprinttag"
 	"github.com/SimplyPrint/nfc-agent/internal/proxmark3"
+	"github.com/SimplyPrint/nfc-agent/internal/settings"
 	"github.com/ebfe/scard"
 )
 
@@ -236,16 +237,38 @@ func GetCardUID(readerName string) (*Card, error) {
 // Returns true if detection was confident, false if it was a fallback guess.
 // Callers should NOT cache results when confident=false.
 func detectCardType(card *scard.Card, cardInfo *Card) (confident bool) {
+	extLog := settings.IsExtendedLoggingEnabled()
+
+	// Log detection start with ATR when extended logging is enabled
+	if extLog {
+		logging.Debug(logging.CatCard, "=== Card detection started ===", map[string]any{
+			"uid": cardInfo.UID,
+			"atr": cardInfo.ATR,
+		})
+	}
+
 	// Log the final detection result when function returns
 	defer func() {
-		logging.Debug(logging.CatCard, "Card type detection complete", map[string]any{
-			"uid":         cardInfo.UID,
-			"type":        cardInfo.Type,
-			"size":        cardInfo.Size,
-			"atr":         cardInfo.ATR,
-			"protocol":    cardInfo.Protocol,
-			"protocolISO": cardInfo.ProtocolISO,
-		})
+		if extLog {
+			logging.Debug(logging.CatCard, "=== Card detection complete ===", map[string]any{
+				"uid":         cardInfo.UID,
+				"type":        cardInfo.Type,
+				"size":        cardInfo.Size,
+				"atr":         cardInfo.ATR,
+				"protocol":    cardInfo.Protocol,
+				"protocolISO": cardInfo.ProtocolISO,
+				"confident":   confident,
+			})
+		} else {
+			logging.Debug(logging.CatCard, "Card type detection complete", map[string]any{
+				"uid":         cardInfo.UID,
+				"type":        cardInfo.Type,
+				"size":        cardInfo.Size,
+				"atr":         cardInfo.ATR,
+				"protocol":    cardInfo.Protocol,
+				"protocolISO": cardInfo.ProtocolISO,
+			})
+		}
 	}()
 
 	// Detect protocol from ATR patterns (set early, before type detection)
@@ -276,6 +299,11 @@ func detectCardType(card *scard.Card, cardInfo *Card) (confident bool) {
 
 	// Method 1a: Try GET_VERSION with standard PC/SC passthrough
 	getVersionCmd := []byte{0xFF, 0x00, 0x00, 0x00, 0x02, 0x60, 0x00}
+	if extLog {
+		logging.Debug(logging.CatCard, "APDU TX (GET_VERSION 1a)", map[string]any{
+			"cmd": hex.EncodeToString(getVersionCmd),
+		})
+	}
 	rsp, err := card.Transmit(getVersionCmd)
 
 	// Log GET_VERSION response for diagnostics
@@ -284,6 +312,10 @@ func detectCardType(card *scard.Card, cardInfo *Card) (confident bool) {
 			"method":   "1a",
 			"response": hex.EncodeToString(rsp),
 			"status":   fmt.Sprintf("%02x%02x", rsp[len(rsp)-2], rsp[len(rsp)-1]),
+		})
+	} else if extLog && err != nil {
+		logging.Debug(logging.CatCard, "GET_VERSION 1a error", map[string]any{
+			"error": err.Error(),
 		})
 	}
 
@@ -432,7 +464,18 @@ func detectCardType(card *scard.Card, cardInfo *Card) (confident bool) {
 	// Method 2a: Try reading pages 1-4 (works on ACR1252U where direct page 3 read fails)
 	// Page 3 contains the capability container at offset 8 in this 16-byte response
 	readCmd1 := []byte{0xFF, 0xB0, 0x00, 0x01, 0x10} // Read 16 bytes from page 1
+	if extLog {
+		logging.Debug(logging.CatCard, "APDU TX (CC read 2a)", map[string]any{
+			"cmd": hex.EncodeToString(readCmd1),
+		})
+	}
 	rsp, err = card.Transmit(readCmd1)
+	if extLog {
+		logging.Debug(logging.CatCard, "APDU RX (CC read 2a)", map[string]any{
+			"response": hex.EncodeToString(rsp),
+			"error":    fmt.Sprintf("%v", err),
+		})
+	}
 
 	if err == nil && len(rsp) >= 12 && rsp[len(rsp)-2] == 0x90 {
 		// CC is at bytes 8-11 (page 3 within the 4-page read)
@@ -486,7 +529,18 @@ func detectCardType(card *scard.Card, cardInfo *Card) (confident bool) {
 	// Method 2b: Try reading page 3 directly to get capability container (works on ACR122U)
 	// Read 4 pages starting from page 3 (CC bytes)
 	readCmd := []byte{0xFF, 0xB0, 0x00, 0x03, 0x10} // Read 16 bytes from page 3
+	if extLog {
+		logging.Debug(logging.CatCard, "APDU TX (CC read 2b)", map[string]any{
+			"cmd": hex.EncodeToString(readCmd),
+		})
+	}
 	rsp, err = card.Transmit(readCmd)
+	if extLog {
+		logging.Debug(logging.CatCard, "APDU RX (CC read 2b)", map[string]any{
+			"response": hex.EncodeToString(rsp),
+			"error":    fmt.Sprintf("%v", err),
+		})
+	}
 
 	if err == nil && len(rsp) >= 6 && rsp[len(rsp)-2] == 0x90 {
 		// Page 3 contains capability container
@@ -1299,9 +1353,24 @@ func readMifareClassicBlock(card *scard.Card, blockNum int, lastAuthSector *int)
 // readNTAGPage reads a single 4-byte page from an NTAG card
 // Uses fallback to ACR122U direct transmit if standard command fails
 func readNTAGPage(card *scard.Card, pageNum int) ([]byte, error) {
+	extLog := settings.IsExtendedLoggingEnabled()
+
 	// Method 1: Standard READ BINARY command
 	readCmd := []byte{0xFF, 0xB0, 0x00, byte(pageNum), 0x04}
+	if extLog {
+		logging.Debug(logging.CatCard, "APDU TX (READ_BINARY)", map[string]any{
+			"page": pageNum,
+			"cmd":  hex.EncodeToString(readCmd),
+		})
+	}
 	rsp, err := card.Transmit(readCmd)
+	if extLog {
+		logging.Debug(logging.CatCard, "APDU RX (READ_BINARY)", map[string]any{
+			"page":     pageNum,
+			"response": hex.EncodeToString(rsp),
+			"error":    fmt.Sprintf("%v", err),
+		})
+	}
 
 	if err == nil && len(rsp) >= 6 && rsp[len(rsp)-2] == 0x90 && rsp[len(rsp)-1] == 0x00 {
 		return rsp[:len(rsp)-2], nil
@@ -1311,7 +1380,20 @@ func readNTAGPage(card *scard.Card, pageNum int) ([]byte, error) {
 	// Format: FF 00 00 00 [len] D4 42 30 [page]
 	// NTAG READ returns 16 bytes (4 pages starting from pageNum)
 	directCmd := []byte{0xFF, 0x00, 0x00, 0x00, 0x04, 0xD4, 0x42, 0x30, byte(pageNum)}
+	if extLog {
+		logging.Debug(logging.CatCard, "APDU TX (InCommunicateThru READ)", map[string]any{
+			"page": pageNum,
+			"cmd":  hex.EncodeToString(directCmd),
+		})
+	}
 	rsp, err = card.Transmit(directCmd)
+	if extLog {
+		logging.Debug(logging.CatCard, "APDU RX (InCommunicateThru READ)", map[string]any{
+			"page":     pageNum,
+			"response": hex.EncodeToString(rsp),
+			"error":    fmt.Sprintf("%v", err),
+		})
+	}
 
 	if err != nil {
 		return nil, fmt.Errorf("read failed: %w", err)

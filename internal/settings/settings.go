@@ -9,7 +9,8 @@ import (
 
 // Settings holds user preferences that persist across restarts.
 type Settings struct {
-	CrashReporting bool `json:"crashReporting"` // Whether to send crash reports to Sentry
+	CrashReporting  bool `json:"crashReporting"`  // Whether to send crash reports to Sentry
+	ExtendedLogging bool `json:"extendedLogging"` // Whether to log detailed APDU traffic for debugging
 }
 
 var (
@@ -123,4 +124,21 @@ func SetCrashReporting(enabled bool) error {
 // IsCrashReportingEnabled returns whether crash reporting is enabled.
 func IsCrashReportingEnabled() bool {
 	return Get().CrashReporting
+}
+
+// SetExtendedLogging updates the extended logging preference and saves.
+func SetExtendedLogging(enabled bool) error {
+	mu.Lock()
+	if current == nil {
+		current = DefaultSettings()
+	}
+	current.ExtendedLogging = enabled
+	mu.Unlock()
+
+	return Save()
+}
+
+// IsExtendedLoggingEnabled returns whether extended APDU logging is enabled.
+func IsExtendedLoggingEnabled() bool {
+	return Get().ExtendedLogging
 }

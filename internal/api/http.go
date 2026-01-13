@@ -828,12 +828,14 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		s := settings.Get()
 		respondJSON(w, http.StatusOK, map[string]interface{}{
-			"crashReporting": s.CrashReporting,
+			"crashReporting":  s.CrashReporting,
+			"extendedLogging": s.ExtendedLogging,
 		})
 
 	case http.MethodPost:
 		var req struct {
-			CrashReporting *bool `json:"crashReporting"`
+			CrashReporting  *bool `json:"crashReporting"`
+			ExtendedLogging *bool `json:"extendedLogging"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			respondJSON(w, http.StatusBadRequest, map[string]string{
@@ -851,10 +853,20 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		if req.ExtendedLogging != nil {
+			if err := settings.SetExtendedLogging(*req.ExtendedLogging); err != nil {
+				respondJSON(w, http.StatusInternalServerError, map[string]string{
+					"error": "failed to save settings: " + err.Error(),
+				})
+				return
+			}
+		}
+
 		s := settings.Get()
 		respondJSON(w, http.StatusOK, map[string]interface{}{
-			"crashReporting": s.CrashReporting,
-			"message":        "Settings updated. Restart may be required for some changes to take effect.",
+			"crashReporting":  s.CrashReporting,
+			"extendedLogging": s.ExtendedLogging,
+			"message":         "Settings updated.",
 		})
 
 	default:
