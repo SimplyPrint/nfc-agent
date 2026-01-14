@@ -461,6 +461,20 @@ func detectCardType(card *scard.Card, cardInfo *Card) (confident bool) {
 		}
 	}
 
+	// Reset reader state after GET_VERSION failures.
+	// GET_VERSION returning non-9000 status (e.g., 6300) on some readers (ACR1552 on Windows)
+	// can leave the reader in a corrupted state where subsequent commands fail with
+	// "card removed" errors. Reconnecting with ResetCard clears this state.
+	if !getVersionSucceeded {
+		if err := card.Reconnect(scard.ShareShared, scard.ProtocolAny, scard.ResetCard); err != nil {
+			logging.Debug(logging.CatCard, "Reader reconnect after GET_VERSION failed", map[string]any{
+				"error": err.Error(),
+			})
+		} else {
+			logging.Debug(logging.CatCard, "Reader reconnected after GET_VERSION failure", nil)
+		}
+	}
+
 	// Method 2a: Try reading pages 1-4 (works on ACR1252U where direct page 3 read fails)
 	// Page 3 contains the capability container at offset 8 in this 16-byte response
 	readCmd1 := []byte{0xFF, 0xB0, 0x00, 0x01, 0x10} // Read 16 bytes from page 1
