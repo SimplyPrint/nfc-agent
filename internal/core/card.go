@@ -40,6 +40,13 @@ type Card struct {
 var (
 	cardDetectionCache   = make(map[string]*Card)
 	cardDetectionCacheMu sync.RWMutex
+
+	// readerMutexes provides per-reader synchronization to prevent concurrent
+	// GetCardUID calls on the same reader from racing with each other.
+	// This is especially important for password-protected NTAG cards where
+	// detection takes longer and polling ticks can overlap with ongoing detection.
+	readerMutexes   = make(map[string]*sync.Mutex)
+	readerMutexesMu sync.Mutex
 )
 
 // ClearCardCache removes a card from the detection cache.
@@ -59,9 +66,29 @@ func ClearAllCardCache() {
 	logging.Debug(logging.CatCard, "Cleared all card detection cache", nil)
 }
 
+// getReaderMutex returns a mutex for the given reader name, creating one if needed.
+// This ensures each reader has its own mutex for serializing GetCardUID calls.
+func getReaderMutex(readerName string) *sync.Mutex {
+	readerMutexesMu.Lock()
+	defer readerMutexesMu.Unlock()
+	if mu, ok := readerMutexes[readerName]; ok {
+		return mu
+	}
+	mu := &sync.Mutex{}
+	readerMutexes[readerName] = mu
+	return mu
+}
+
 // GetCardUID connects to the specified reader and attempts to read the card UID.
 // Returns an error if no card is present or if reading fails.
 func GetCardUID(readerName string) (*Card, error) {
+	// Serialize access to each reader to prevent concurrent detection races.
+	// This is critical for password-protected NTAG cards where detection takes
+	// longer and polling ticks can overlap with ongoing detection attempts.
+	readerMu := getReaderMutex(readerName)
+	readerMu.Lock()
+	defer readerMu.Unlock()
+
 	// Dispatch to Proxmark3 if this is a Proxmark3 reader
 	if IsProxmark3Reader(readerName) {
 		return getCardUIDProxmark3(readerName)
