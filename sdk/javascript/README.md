@@ -405,7 +405,7 @@ poller.start();
 | `connect()` | Connect to WebSocket server |
 | `disconnect()` | Disconnect from server |
 | `getReaders()` | List available readers |
-| `readCard(reader)` | Read card data |
+| `readCard(reader, options?)` | Read card data. Pass `{ refresh: true }` to bypass the detection cache. |
 | `writeCard(reader, options)` | Write data to card |
 | `eraseCard(reader)` | Erase NDEF data |
 | `lockCard(reader)` | Lock card permanently |
@@ -443,7 +443,7 @@ poller.start();
 |--------|-------------|
 | `isConnected()` | Check if agent is running |
 | `getReaders()` | List available readers |
-| `readCard(reader)` | Read card data |
+| `readCard(reader, options?)` | Read card data. Pass `{ refresh: true }` to bypass the detection cache. |
 | `writeCard(reader, options)` | Write data to card |
 | `getSupportedReaders()` | Get supported hardware info |
 | `getVersion()` | Get agent version and update info |

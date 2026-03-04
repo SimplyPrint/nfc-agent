@@ -202,7 +202,7 @@ Configure via environment variables:
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/v1/readers` | List connected readers |
-| `GET` | `/v1/readers/{n}/card` | Read card on reader N |
+| `GET` | `/v1/readers/{n}/card` | Read card on reader N. Add `?refresh=true` to bypass the detection cache and force a fresh read from the physical card. |
 | `POST` | `/v1/readers/{n}/card` | Write data to card |
 | `POST` | `/v1/readers/{n}/erase` | Erase card data |
 | `POST` | `/v1/readers/{n}/lock` | Lock card (permanent!) |

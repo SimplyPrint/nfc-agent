@@ -58,6 +58,16 @@ func ClearCardCache(uid string) {
 	logging.Debug(logging.CatCard, "Cleared card detection cache", map[string]any{"uid": uid})
 }
 
+// clearCacheForConnectedCard reads the UID from an already-connected card and removes
+// it from the detection cache. Used after write/erase to ensure the next read reflects
+// the updated card state. Errors are silently ignored — cache invalidation is best-effort.
+func clearCacheForConnectedCard(card *scard.Card) {
+	rsp, err := card.Transmit([]byte{0xFF, 0xCA, 0x00, 0x00, 0x00})
+	if err == nil && len(rsp) >= 2 && rsp[len(rsp)-2] == 0x90 && rsp[len(rsp)-1] == 0x00 {
+		ClearCardCache(hex.EncodeToString(rsp[:len(rsp)-2]))
+	}
+}
+
 // ClearAllCardCache clears the entire card detection cache.
 func ClearAllCardCache() {
 	cardDetectionCacheMu.Lock()
@@ -885,6 +895,9 @@ func WriteDataWithURL(readerName string, data []byte, dataType string, url strin
 			return fmt.Errorf("failed to write NDEF message: %w", err)
 		}
 	}
+
+	// Invalidate cache so next read reflects the newly written data.
+	clearCacheForConnectedCard(card)
 
 	return nil
 }
@@ -1824,6 +1837,9 @@ func EraseCard(readerName string) error {
 	if err := writeNTAGPages(card, 4, emptyNDEF); err != nil {
 		return fmt.Errorf("failed to erase card: %w", err)
 	}
+
+	// Invalidate cache so next read reflects the erased state.
+	clearCacheForConnectedCard(card)
 
 	return nil
 }

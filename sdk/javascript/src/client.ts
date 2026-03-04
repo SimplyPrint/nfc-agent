@@ -125,12 +125,16 @@ export class NFCAgentClient {
   /**
    * Read card data from a specific reader
    * @param readerIndex - Index of the reader (0-based)
+   * @param options.refresh - Bypass the detection cache and force a fresh read from the physical card
    * @returns Card data if a card is present
    * @throws CardError if no card is present or read fails
    */
-  async readCard(readerIndex: number): Promise<Card> {
+  async readCard(readerIndex: number, options: { refresh?: boolean } = {}): Promise<Card> {
+    const url = options.refresh
+      ? `/v1/readers/${readerIndex}/card?refresh=true`
+      : `/v1/readers/${readerIndex}/card`;
     try {
-      return await this.request<Card>(`/v1/readers/${readerIndex}/card`);
+      return await this.request<Card>(url);
     } catch (error) {
       if (error instanceof APIError) {
         throw new CardError(error.message);

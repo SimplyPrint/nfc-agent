@@ -224,12 +224,13 @@ class NFCClient:
         data = await self._request("GET", "/v1/readers")
         return [Reader(**r) for r in data]
 
-    async def read_card(self, reader_index: int) -> Card:
+    async def read_card(self, reader_index: int, *, refresh: bool = False) -> Card:
         """
         Read card data from a specific reader.
 
         Args:
             reader_index: Index of the reader (0-based)
+            refresh: Bypass the detection cache and force a fresh read from the physical card
 
         Returns:
             Card data if a card is present
@@ -238,7 +239,8 @@ class NFCClient:
             CardError: If no card is present or read fails
         """
         try:
-            data = await self._request("GET", f"/v1/readers/{reader_index}/card")
+            params = {"refresh": "true"} if refresh else None
+            data = await self._request("GET", f"/v1/readers/{reader_index}/card", params=params)
             return self._parse_card(data)
         except APIError as e:
             raise CardError(str(e)) from e
@@ -666,10 +668,16 @@ class NFCClient:
         data = self._request_sync("GET", "/v1/readers")
         return [Reader(**r) for r in data]
 
-    def read_card_sync(self, reader_index: int) -> Card:
-        """Read card data from a specific reader (sync version)."""
+    def read_card_sync(self, reader_index: int, *, refresh: bool = False) -> Card:
+        """Read card data from a specific reader (sync version).
+
+        Args:
+            reader_index: Index of the reader (0-based)
+            refresh: Bypass the detection cache and force a fresh read from the physical card
+        """
         try:
-            data = self._request_sync("GET", f"/v1/readers/{reader_index}/card")
+            params = {"refresh": "true"} if refresh else None
+            data = self._request_sync("GET", f"/v1/readers/{reader_index}/card", params=params)
             return self._parse_card(data)
         except APIError as e:
             raise CardError(str(e)) from e

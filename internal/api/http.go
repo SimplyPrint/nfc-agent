@@ -246,6 +246,10 @@ func handleReaderCard(w http.ResponseWriter, r *http.Request, readerName string)
 	switch r.Method {
 	case http.MethodGet:
 		// Read card UID and info
+		// ?refresh=true bypasses the in-memory cache and forces a fresh read from the physical card.
+		if r.URL.Query().Get("refresh") == "true" {
+			core.ClearAllCardCache()
+		}
 		card, err := core.GetCardUID(readerName)
 		if err != nil {
 			logging.Debug(logging.CatHTTP, "Card read failed", map[string]any{

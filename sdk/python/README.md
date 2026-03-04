@@ -124,7 +124,7 @@ with NFCClient() as client:
 | Method | Description |
 |--------|-------------|
 | `get_readers()` | List available NFC readers |
-| `read_card(reader_index)` | Read card data from a reader |
+| `read_card(reader_index, *, refresh=False)` | Read card data from a reader. Pass `refresh=True` to bypass the detection cache. |
 | `write_card(reader_index, *, data, data_type, url)` | Write data to a card |
 | `get_version()` | Get agent version information |
 | `is_connected()` | Check if agent is running |
