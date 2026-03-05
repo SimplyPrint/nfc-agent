@@ -226,6 +226,10 @@ func handleReaderRoutes(w http.ResponseWriter, r *http.Request) {
 			handlePassword(w, r, readerName)
 		case "records":
 			handleMultipleRecords(w, r, readerName)
+		case "dump":
+			handleDumpCard(w, r, readerName)
+		case "read":
+			handleReadCardFull(w, r, readerName)
 		case "mifare":
 			handleMifareBlock(w, r, readerName, parts)
 		case "ultralight":
@@ -240,6 +244,60 @@ func handleReaderRoutes(w http.ResponseWriter, r *http.Request) {
 			"error": "missing endpoint (e.g., /card, /erase, /lock)",
 		})
 	}
+}
+
+// GET /v1/readers/{n}/read - Read card metadata + NDEF + full raw memory dump in one call
+// Accepts ?refresh=true to bypass the in-memory cache (same as /card).
+func handleReadCardFull(w http.ResponseWriter, r *http.Request, readerName string) {
+	if r.Method != http.MethodGet {
+		respondJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if r.URL.Query().Get("refresh") == "true" {
+		core.ClearAllCardCache()
+	}
+	card, err := core.GetCardFull(readerName)
+	if err != nil {
+		logging.Debug(logging.CatHTTP, "Card full read failed", map[string]any{
+			"reader": readerName,
+			"error":  err.Error(),
+		})
+		respondJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	logging.Info(logging.CatCard, "Full card read", map[string]any{
+		"reader": readerName,
+		"uid":    card.UID,
+		"type":   card.Type,
+	})
+	respondJSON(w, http.StatusOK, card)
+}
+
+// GET /v1/readers/{n}/dump - Read full raw memory dump of the current card
+// Accepts ?refresh=true to bypass the in-memory cache (same as /card).
+func handleDumpCard(w http.ResponseWriter, r *http.Request, readerName string) {
+	if r.Method != http.MethodGet {
+		respondJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if r.URL.Query().Get("refresh") == "true" {
+		core.ClearAllCardCache()
+	}
+	dump, err := core.DumpCardRaw(readerName)
+	if err != nil {
+		logging.Debug(logging.CatHTTP, "Card dump failed", map[string]any{
+			"reader": readerName,
+			"error":  err.Error(),
+		})
+		respondJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	logging.Info(logging.CatCard, "Raw card dump", map[string]any{
+		"reader": readerName,
+		"uid":    dump.UID,
+		"type":   dump.Type,
+	})
+	respondJSON(w, http.StatusOK, dump)
 }
 
 func handleReaderCard(w http.ResponseWriter, r *http.Request, readerName string) {

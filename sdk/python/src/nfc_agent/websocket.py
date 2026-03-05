@@ -15,8 +15,10 @@ from websockets.asyncio.client import ClientConnection
 from .exceptions import CardError, ConnectionError, NFCAgentError, TimeoutError
 from .types import (
     Card,
+    CardDataEvent,
     CardDataType,
     CardDetectedEvent,
+    CardRawDump,
     CardRemovedEvent,
     DerivedKeyData,
     HealthInfo,
@@ -40,6 +42,7 @@ DEFAULT_RECONNECT_INTERVAL = 3.0
 # Callback type aliases
 CardDetectedCallback = Callable[[CardDetectedEvent], None]
 CardRemovedCallback = Callable[[CardRemovedEvent], None]
+CardDataCallback = Callable[[CardDataEvent], None]
 ConnectionCallback = Callable[[], None]
 ErrorCallback = Callable[[Exception], None]
 
@@ -116,6 +119,7 @@ class NFCWebSocket:
         # Event listeners
         self._on_card_detected: list[CardDetectedCallback] = []
         self._on_card_removed: list[CardRemovedCallback] = []
+        self._on_card_data: list[CardDataCallback] = []
         self._on_connected: list[ConnectionCallback] = []
         self._on_disconnected: list[ConnectionCallback] = []
         self._on_error: list[ErrorCallback] = []
@@ -201,6 +205,21 @@ class NFCWebSocket:
     def on_card_removed(self, callback: CardRemovedCallback) -> CardRemovedCallback:
         """Register a card removed event handler."""
         self._on_card_removed.append(callback)
+        return callback
+
+    def on_card_data(self, callback: CardDataCallback) -> CardDataCallback:
+        """
+        Register a card data event handler.
+
+        Fires after card_detected when subscribe(include_raw=True) is used,
+        or as response to dump_card().
+
+        Can be used as a decorator:
+            @ws.on_card_data
+            def handle_data(event):
+                print(event.pages)
+        """
+        self._on_card_data.append(callback)
         return callback
 
     def on_connected(self, callback: ConnectionCallback) -> ConnectionCallback:
@@ -349,13 +368,61 @@ class NFCWebSocket:
         except NFCAgentError as e:
             raise CardError(str(e)) from e
 
-    async def subscribe(self, reader_index: int) -> None:
-        """Subscribe to card events on a reader."""
-        await self._request("subscribe", {"readerIndex": reader_index})
+    async def subscribe(self, reader_index: int, *, include_raw: bool = False) -> None:
+        """
+        Subscribe to card events on a reader.
+
+        Args:
+            reader_index: Index of the reader (0-based)
+            include_raw: If True, a card_data event fires after card_detected
+                         containing the full raw memory dump of the card.
+        """
+        await self._request("subscribe", {"readerIndex": reader_index, "includeRaw": include_raw})
 
     async def unsubscribe(self, reader_index: int) -> None:
         """Unsubscribe from card events on a reader."""
         await self._request("unsubscribe", {"readerIndex": reader_index})
+
+    async def dump_card(self, reader_index: int) -> CardRawDump:
+        """
+        Dump raw card memory on demand.
+
+        Args:
+            reader_index: Index of the reader (0-based)
+
+        Returns:
+            CardRawDump with pages (NTAG) or blocks (MIFARE Classic) populated
+
+        Raises:
+            CardError: If no card is present or dump fails
+        """
+        try:
+            response = await self._request("dump_card", {"readerIndex": reader_index})
+            return self._parse_card_raw_dump(response)
+        except NFCAgentError as e:
+            raise CardError(str(e)) from e
+
+    async def read_card_full(self, reader_index: int) -> Card:
+        """
+        Read all card data in one call: metadata, NDEF, and full raw memory dump.
+
+        For NTAG/Ultralight the returned Card has a ``pages`` field.
+        For MIFARE Classic it has ``blocks`` and optionally ``failed_blocks``.
+
+        Args:
+            reader_index: Index of the reader (0-based)
+
+        Returns:
+            Card with metadata, NDEF data, and raw memory fields populated
+
+        Raises:
+            CardError: If no card is present or read fails
+        """
+        try:
+            response = await self._request("read_card_full", {"readerIndex": reader_index})
+            return self._parse_card(response)
+        except NFCAgentError as e:
+            raise CardError(str(e)) from e
 
     async def get_version(self) -> VersionInfo:
         """Get agent version information."""
@@ -680,6 +747,22 @@ class NFCWebSocket:
                     removed_cb(removed_event)
             return
 
+        if msg_type == "card_data":
+            card_data_payload = data.get("payload", {})
+            card_data_event = CardDataEvent(
+                reader_index=card_data_payload.get("readerIndex", 0),
+                reader_name=card_data_payload.get("readerName", ""),
+                uid=card_data_payload.get("uid", ""),
+                type=card_data_payload.get("type", ""),
+                pages=card_data_payload.get("pages"),
+                blocks=card_data_payload.get("blocks"),
+                failed_blocks=card_data_payload.get("failedBlocks"),
+            )
+            for card_data_cb in self._on_card_data:
+                with contextlib.suppress(Exception):
+                    card_data_cb(card_data_event)
+            return
+
         # Handle responses
         req_id = data.get("id")
         if req_id and req_id in self._pending:
@@ -716,6 +799,17 @@ class NFCWebSocket:
                 callback()
 
     @staticmethod
+    def _parse_card_raw_dump(data: dict[str, Any]) -> CardRawDump:
+        """Parse raw card dump from response."""
+        return CardRawDump(
+            uid=data.get("uid", ""),
+            type=data.get("type", ""),
+            pages=data.get("pages"),
+            blocks=data.get("blocks"),
+            failed_blocks=data.get("failedBlocks"),
+        )
+
+    @staticmethod
     def _parse_card(data: dict[str, Any]) -> Card:
         """Parse card data from response."""
         data_type = None
@@ -735,4 +829,7 @@ class NFCWebSocket:
             writable=data.get("writable"),
             data=data.get("data"),
             data_type=data_type,
+            pages=data.get("pages"),
+            blocks=data.get("blocks"),
+            failed_blocks=data.get("failedBlocks"),
         )

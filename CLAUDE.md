@@ -40,9 +40,27 @@ go test -v -race ./...
 - When asked to commit: stage specific files by name, write a concise message, do not push unless told.
 - Tagging for release (`git tag v1.x.x && git push origin v1.x.x`) triggers CI builds and SDK publishing — only do this when explicitly instructed.
 
+## MCP Server — Preferred Development Tool
+
+The project includes an MCP server at `mcp/` that exposes all NFC Agent capabilities as Claude Code tools. **When the MCP server is available (i.e. you can call `nfc_agent_status`), use it instead of curl or Python scripts** — it's faster, gives structured output, and keeps the main context clean.
+
+```
+nfc_agent_status          → check if agent is running
+nfc_list_readers          → list connected readers
+nfc_read_card             → read card (UID + NDEF + raw memory) in one call
+nfc_agent_build           → build the Go binary
+nfc_agent_test            → run Go tests
+nfc_agent_logs            → fetch recent agent logs
+sp_identify_card          → read card + resolve against SimplyPrint
+```
+
+Full MCP tool reference: [`.ai/mcp.md`](.ai/mcp.md)
+
+**When to fall back to curl/scripts:** the agent is not running, MCP is not configured, or you need to test a very specific raw HTTP request.
+
 ## ALWAYS Test After Changes
 
-After any code change: **build and call the API to verify.** The agent starts in seconds. It's trivial to test — just curl an endpoint or run a script.
+After any code change: **build and call the API to verify.** The agent starts in seconds. If the MCP server is available, use `nfc_agent_build` then `nfc_read_card` / `nfc_agent_status`. Otherwise:
 
 ```bash
 go build -o nfc-agent ./cmd/nfc-agent && ./nfc-agent &
@@ -81,6 +99,7 @@ Full API reference: [`.ai/api.md`](.ai/api.md)
 
 | File | Contents |
 |------|---------|
+| [`.ai/mcp.md`](.ai/mcp.md) | MCP server — tools, setup, preferred dev workflow |
 | [`.ai/api.md`](.ai/api.md) | Full HTTP + WebSocket API with curl examples |
 | [`.ai/standards.md`](.ai/standards.md) | NFC standards: Creality, Anycubic, Qidi, OpenPrintTag, etc. |
 | [`.ai/build-release.md`](.ai/build-release.md) | Build, CI/CD, tagging, release process |

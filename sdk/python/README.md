@@ -124,7 +124,7 @@ with NFCClient() as client:
 | Method | Description |
 |--------|-------------|
 | `get_readers()` | List available NFC readers |
-| `read_card(reader_index, *, refresh=False)` | Read card data from a reader. Pass `refresh=True` to bypass the detection cache. |
+| `read_card(reader_index, *, refresh=False)` | Read card metadata + NDEF. **Fast** — use for detection/polling. Pass `refresh=True` to bypass cache. |
 | `write_card(reader_index, *, data, data_type, url)` | Write data to a card |
 | `get_version()` | Get agent version information |
 | `is_connected()` | Check if agent is running |
@@ -172,8 +172,10 @@ All methods from NFCClient, plus:
 
 | Method | Description |
 |--------|-------------|
-| `subscribe(reader_index)` | Subscribe to card events |
+| `subscribe(reader_index, *, include_raw=False)` | Subscribe to card events. Pass `include_raw=True` to also receive `on_card_data` events with full memory dump. |
 | `unsubscribe(reader_index)` | Unsubscribe from events |
+| `read_card_full(reader_index)` | **Unified read** — metadata + NDEF + full raw memory dump. **Slow** — call once on demand, not in a poll loop. |
+| `dump_card(reader_index)` | Raw memory dump only (pages for NTAG, blocks for MIFARE Classic; no NDEF metadata) |
 | `erase_card(reader_index)` | Erase NDEF data |
 | `lock_card(reader_index)` | Permanently lock card |
 | `set_password(reader_index, password)` | Set NTAG password |
@@ -187,6 +189,11 @@ All methods from NFCClient, plus:
 @ws.on_card_detected
 def handle_card(event):
     print(event.card.uid)
+
+@ws.on_card_data
+def handle_data(event):
+    # event.pages (NTAG) or event.blocks (MIFARE Classic)
+    print(event.pages)
 
 @ws.on_card_removed
 def handle_removed(event):

@@ -70,7 +70,7 @@ Reader index `{n}` in all `/readers/{n}/...` routes is the **0-based array index
 ### Card (NDEF) Operations
 
 ```bash
-# Read card — returns UID, type, protocol, NDEF data
+# Read card — UID, type, protocol, NDEF data. FAST — use for detection/polling.
 curl http://127.0.0.1:32145/v1/readers/0/card
 # → {
 #     "uid": "04:A2:B3:C4:D5:E6:07",
@@ -118,6 +118,22 @@ curl -X POST http://127.0.0.1:32145/v1/readers/0/card \
       "maxPrintTemp": 230
     }
   }'
+
+# Unified read — metadata + NDEF + full raw memory dump. SLOW (full memory read).
+# Call once on demand after detection — do NOT poll with this.
+# For NTAG/Ultralight: pages field is populated. For MIFARE Classic: blocks + failedBlocks.
+curl http://127.0.0.1:32145/v1/readers/0/read
+# NTAG215 response:
+# → {"uid":"04484783...","type":"NTAG213","protocol":"NFC-A","size":180,"writable":true,
+#    "dataType":"json","data":"{...}","pages":["04484783","8a837280",...]}
+# MIFARE Classic response:
+# → {"uid":"c34e2820","type":"MIFARE Classic","blocks":{"0":"c34e28...","1":"000000..."},
+#    "failedBlocks":[12,16]}
+
+# Raw memory dump only (no NDEF metadata — use /read instead for most cases)
+curl http://127.0.0.1:32145/v1/readers/0/dump
+# → {"uid":"c34e2820","type":"NTAG215","pages":["04c34e28","20800149","e1100600","03000000",...]}
+# → {"uid":"c34e2820","type":"MIFARE Classic","blocks":{"0":"c34e28...","1":"000000..."},"failedBlocks":[12,16]}
 
 # Erase card
 curl -X POST http://127.0.0.1:32145/v1/readers/0/erase
@@ -355,13 +371,43 @@ URL: `ws://127.0.0.1:32145/v1/ws`
 → {"type":"subscribe","id":"s1","payload":{"readerIndex":0,"intervalMs":500}}
 ← {"type":"subscribed","id":"s1","payload":null}
 
+// Subscribe with full raw dump — card_detected fires immediately, then card_data fires
+// once the full memory read completes (background goroutine, non-blocking)
+→ {"type":"subscribe","id":"s1","payload":{"readerIndex":0,"intervalMs":500,"includeRaw":true}}
+
 // Server sends these automatically when card state changes:
 ← {"type":"card_detected","payload":{
     "readerIndex":0,
     "readerName":"ACS ACR1252U PICC Reader",
     "card":{"uid":"04:A2:B3:C4","type":"NTAG215","dataType":"url","url":"https://..."}
   }}
+// (only when subscribed with includeRaw:true) — fires after card_detected
+← {"type":"card_data","payload":{
+    "readerIndex":0,
+    "readerName":"ACS ACR1252U PICC Reader",
+    "uid":"c34e2820",
+    "type":"NTAG215",
+    "pages":["04c34e28","20800149","e1100600","03000000",...]
+  }}
+// For MIFARE Classic card_data:
+← {"type":"card_data","payload":{
+    "uid":"c34e2820","type":"MIFARE Classic",
+    "blocks":{"0":"c34e28...","1":"000000...","4":"aabbcc..."},
+    "failedBlocks":[12,16]
+  }}
 ← {"type":"card_removed","payload":{"readerIndex":0,"readerName":"ACS ACR1252U PICC Reader"}}
+
+// Unified read — metadata + NDEF + full raw memory. SLOW — call once on demand, not in a loop.
+→ {"type":"read_card_full","id":"r1","payload":{"readerIndex":0}}
+← {"type":"read_card_full","id":"r1","payload":{
+    "readerIndex":0,"readerName":"ACS ACR1552...",
+    "uid":"04484783...","type":"NTAG213","protocol":"NFC-A","size":180,"writable":true,
+    "dataType":"json","data":"{...}","pages":["04484783",...]
+  }}
+
+// On-demand raw dump only (no NDEF metadata — use read_card_full instead for most cases)
+→ {"type":"dump_card","id":"d1","payload":{"readerIndex":0}}
+← {"type":"dump_card","id":"d1","payload":{"uid":"c34e2820","type":"NTAG215","pages":[...]}}
 
 // Unsubscribe
 → {"type":"unsubscribe","id":"u1","payload":{"readerIndex":0}}

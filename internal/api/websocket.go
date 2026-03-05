@@ -39,8 +39,9 @@ type WSClient struct {
 	closed      bool                      // True when client is disconnected
 	subscribed  map[string]bool           // Track subscribed readers for auto-read
 	pollTickers map[string]*time.Ticker
-	pollDone    map[string]chan struct{}  // Done channels to stop polling goroutines
-	lastUIDs    map[string]string // Track last seen UID per reader
+	pollDone    map[string]chan struct{}   // Done channels to stop polling goroutines
+	lastUIDs    map[string]string         // Track last seen UID per reader
+	includeRaw  map[string]bool           // Whether to fire card_data with raw dump after card_detected
 }
 
 // WSHub manages all WebSocket connections
@@ -128,6 +129,7 @@ func InitWebSocket() http.HandlerFunc {
 			pollTickers: make(map[string]*time.Ticker),
 			pollDone:    make(map[string]chan struct{}),
 			lastUIDs:    make(map[string]string),
+			includeRaw:  make(map[string]bool),
 		}
 
 		wsHub.register <- client
@@ -233,6 +235,10 @@ func (c *WSClient) handleMessage(msg WSMessage) {
 		c.handleListReaders(msg.ID)
 	case "read_card":
 		c.handleReadCard(msg.ID, msg.Payload)
+	case "dump_card":
+		c.handleDumpCard(msg.ID, msg.Payload)
+	case "read_card_full":
+		c.handleReadCardFull(msg.ID, msg.Payload)
 	case "write_card":
 		c.handleWriteCard(msg.ID, msg.Payload)
 	case "erase_card":
@@ -343,6 +349,62 @@ func (c *WSClient) sendError(id string, errMsg string) {
 func (c *WSClient) handleListReaders(id string) {
 	readers := core.ListReaders()
 	c.sendResponse(id, "readers", readers)
+}
+
+func (c *WSClient) handleDumpCard(id string, payload json.RawMessage) {
+	var req struct {
+		ReaderIndex int `json:"readerIndex"`
+	}
+	if err := json.Unmarshal(payload, &req); err != nil {
+		c.sendError(id, "invalid payload")
+		return
+	}
+
+	readers := core.ListReaders()
+	if req.ReaderIndex < 0 || req.ReaderIndex >= len(readers) {
+		c.sendError(id, "reader index out of range")
+		return
+	}
+
+	dump, err := core.DumpCardRaw(readers[req.ReaderIndex].Name)
+	if err != nil {
+		c.sendError(id, err.Error())
+		return
+	}
+
+	c.sendResponse(id, "dump_card", struct {
+		ReaderIndex int `json:"readerIndex"`
+		ReaderName  string `json:"readerName"`
+		*core.CardRawDump
+	}{req.ReaderIndex, readers[req.ReaderIndex].Name, dump})
+}
+
+func (c *WSClient) handleReadCardFull(id string, payload json.RawMessage) {
+	var req struct {
+		ReaderIndex int `json:"readerIndex"`
+	}
+	if err := json.Unmarshal(payload, &req); err != nil {
+		c.sendError(id, "invalid payload")
+		return
+	}
+
+	readers := core.ListReaders()
+	if req.ReaderIndex < 0 || req.ReaderIndex >= len(readers) {
+		c.sendError(id, "reader index out of range")
+		return
+	}
+
+	card, err := core.GetCardFull(readers[req.ReaderIndex].Name)
+	if err != nil {
+		c.sendError(id, err.Error())
+		return
+	}
+
+	c.sendResponse(id, "read_card_full", struct {
+		ReaderIndex int `json:"readerIndex"`
+		ReaderName  string `json:"readerName"`
+		*core.Card
+	}{req.ReaderIndex, readers[req.ReaderIndex].Name, card})
 }
 
 func (c *WSClient) handleReadCard(id string, payload json.RawMessage) {
@@ -578,8 +640,9 @@ func (c *WSClient) handleWriteRecords(id string, payload json.RawMessage) {
 
 func (c *WSClient) handleSubscribe(id string, payload json.RawMessage) {
 	var req struct {
-		ReaderIndex int `json:"readerIndex"`
-		IntervalMs  int `json:"intervalMs"`
+		ReaderIndex int  `json:"readerIndex"`
+		IntervalMs  int  `json:"intervalMs"`
+		IncludeRaw  bool `json:"includeRaw"`
 	}
 	if err := json.Unmarshal(payload, &req); err != nil {
 		c.sendError(id, "invalid payload")
@@ -611,6 +674,7 @@ func (c *WSClient) handleSubscribe(id string, payload json.RawMessage) {
 	}
 
 	c.subscribed[readerKey] = true
+	c.includeRaw[readerKey] = req.IncludeRaw
 	c.lastUIDs[readerKey] = "" // Reset to ensure fresh card detection
 	ticker := time.NewTicker(time.Duration(req.IntervalMs) * time.Millisecond)
 	done := make(chan struct{})
@@ -713,6 +777,38 @@ func (c *WSClient) handleSubscribe(id string, payload json.RawMessage) {
 						"readerName":  readerKey,
 						"card":        card,
 					})
+
+					// If subscribed with includeRaw, fire a follow-up card_data event with
+					// the full memory dump (background goroutine, doesn't block detection).
+					c.mu.Lock()
+					wantRaw := c.includeRaw[readerKey]
+					c.mu.Unlock()
+					if wantRaw {
+						detectedUID := card.UID
+						go func() {
+							defer logging.RecoverAndLog("card_data dump goroutine", false)
+							dump, err := core.DumpCardRaw(readerKey)
+							if err != nil {
+								logging.Debug(logging.CatCard, "card_data dump failed", map[string]any{
+									"reader": readerKey,
+									"error":  err.Error(),
+								})
+								return
+							}
+							// Only send if the same card is still present
+							c.mu.Lock()
+							currentUID := c.lastUIDs[readerKey]
+							c.mu.Unlock()
+							if currentUID != detectedUID {
+								return
+							}
+							c.sendResponse("", "card_data", struct {
+								ReaderIndex int    `json:"readerIndex"`
+								ReaderName  string `json:"readerName"`
+								*core.CardRawDump
+							}{req.ReaderIndex, readerKey, dump})
+						}()
+					}
 				} else {
 					c.mu.Unlock()
 				}

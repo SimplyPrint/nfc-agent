@@ -405,15 +405,17 @@ poller.start();
 | `connect()` | Connect to WebSocket server |
 | `disconnect()` | Disconnect from server |
 | `getReaders()` | List available readers |
-| `readCard(reader, options?)` | Read card data. Pass `{ refresh: true }` to bypass the detection cache. |
+| `readCard(reader, options?)` | Read card metadata + NDEF. **Fast** — use for detection/polling. Pass `{ refresh: true }` to bypass cache. |
 | `writeCard(reader, options)` | Write data to card |
 | `eraseCard(reader)` | Erase NDEF data |
 | `lockCard(reader)` | Lock card permanently |
 | `setPassword(reader, password)` | Set NTAG password |
 | `removePassword(reader, password)` | Remove password |
 | `writeRecords(reader, records)` | Write multiple NDEF records |
-| `subscribe(reader)` | Subscribe to card events |
+| `subscribe(reader, options?)` | Subscribe to card events. Pass `{ includeRaw: true }` to also receive `card_data` events with full memory dump. |
 | `unsubscribe(reader)` | Unsubscribe from events |
+| `readCardFull(reader)` | **Unified read** — metadata + NDEF + full raw memory dump. **Slow** — call once on demand, not in a poll loop. |
+| `dumpCard(reader)` | Raw memory dump only (pages for NTAG, blocks for MIFARE Classic; no NDEF metadata) |
 | `getSupportedReaders()` | Get supported hardware info |
 | `getVersion()` | Get agent version |
 | `health()` | Health check |
@@ -432,6 +434,7 @@ poller.start();
 | Event | Callback | Description |
 |-------|----------|-------------|
 | `card_detected` | `(event: CardDetectedEvent) => void` | Card placed on reader |
+| `card_data` | `(event: CardDataEvent) => void` | Full raw memory dump (fired after `card_detected` when subscribed with `includeRaw:true`, or response to `dump_card`) |
 | `card_removed` | `(event: CardRemovedEvent) => void` | Card removed |
 | `connected` | `() => void` | Connected to server |
 | `disconnected` | `() => void` | Disconnected |
@@ -443,7 +446,7 @@ poller.start();
 |--------|-------------|
 | `isConnected()` | Check if agent is running |
 | `getReaders()` | List available readers |
-| `readCard(reader, options?)` | Read card data. Pass `{ refresh: true }` to bypass the detection cache. |
+| `readCard(reader, options?)` | Read card metadata + NDEF. **Fast** — use for detection/polling. Pass `{ refresh: true }` to bypass cache. |
 | `writeCard(reader, options)` | Write data to card |
 | `getSupportedReaders()` | Get supported hardware info |
 | `getVersion()` | Get agent version and update info |

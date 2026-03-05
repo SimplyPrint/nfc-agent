@@ -31,6 +31,12 @@ type Card struct {
 	URL         string `json:"url,omitempty"`         // URL from first NDEF record (if URI record)
 	Data        string `json:"data,omitempty"`        // NDEF data read from the tag (if available)
 	DataType    string `json:"dataType,omitempty"`    // Type of data: "text", "json", "binary", or "unknown"
+
+	// Raw memory dump fields — only present in responses from GET /v1/readers/{n}/read
+	// and the read_card_full WS command. nil/empty for standard card reads.
+	Pages        []string          `json:"pages,omitempty"`        // NTAG/Ultralight: one 8-hex-char string per page
+	Blocks       map[string]string `json:"blocks,omitempty"`       // MIFARE Classic: block index → 32-hex-char string
+	FailedBlocks []int             `json:"failedBlocks,omitempty"` // MIFARE Classic: blocks that could not be authenticated
 }
 
 // cardDetectionCache stores card detection results keyed by UID to avoid
@@ -3512,4 +3518,294 @@ func writeMultipleRecordsProxmark3(readerName string, records []NDEFRecord) erro
 
 	logging.Info(logging.CatReader, "All blocks written successfully", map[string]any{"totalBlocks": block - 1})
 	return nil
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Raw card dump (full memory read)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// crealityAESKeyDerive is the AES-128 key used by Creality CFS to derive the MIFARE sector
+// authentication key from the card UID.
+// Algorithm: repeat UID[0..3] × 4 (= 16 bytes) → AES-128-ECB → first 6 bytes = sector key.
+// ASCII: "q3bu^t1nqfZ(pf$1"
+var crealityAESKeyDerive = []byte{
+	0x71, 0x33, 0x62, 0x75, 0x5e, 0x74, 0x31, 0x6e,
+	0x71, 0x66, 0x5a, 0x28, 0x70, 0x66, 0x24, 0x31,
+}
+
+// deriveCrealityKey derives the 6-byte MIFARE sector key from a hex-encoded tag UID using
+// Creality's algorithm. Returns nil if uid is invalid or too short.
+func deriveCrealityKey(uid string) []byte {
+	uidBytes, err := hex.DecodeString(uid)
+	if err != nil || len(uidBytes) < 4 {
+		return nil
+	}
+	// Expand: repeat first 4 bytes to fill 16
+	expanded := make([]byte, 16)
+	for i := range expanded {
+		expanded[i] = uidBytes[i%4]
+	}
+	encrypted, err := aesECBEncrypt(crealityAESKeyDerive, expanded)
+	if err != nil {
+		return nil
+	}
+	return encrypted[:6]
+}
+
+// readNTAGPageRange reads a contiguous range of NTAG/Ultralight pages using the FAST_READ
+// command (0x3A) via the PN532 InCommunicateThru APDU.
+// Returns raw bytes: (endPage-startPage+1)*4 bytes on success, error if not supported.
+func readNTAGPageRange(card *scard.Card, startPage, endPage int) ([]byte, error) {
+	// FAST_READ: FF 00 00 00 05 D4 42 3A [startPage] [endPage]
+	cmd := []byte{0xFF, 0x00, 0x00, 0x00, 0x05, 0xD4, 0x42, 0x3A, byte(startPage), byte(endPage)}
+	rsp, err := card.Transmit(cmd)
+	if err != nil {
+		return nil, fmt.Errorf("FAST_READ transmit error: %w", err)
+	}
+	if len(rsp) < 5 || rsp[len(rsp)-2] != 0x90 || rsp[len(rsp)-1] != 0x00 {
+		return nil, fmt.Errorf("FAST_READ failed: status %02X %02X", rsp[len(rsp)-2], rsp[len(rsp)-1])
+	}
+	// Expect PN532 InCommunicateThru response: D5 43 00 [data...] 90 00
+	// If the reader wraps the response differently (e.g. ACR1552U), the fallback
+	// page-by-page path in DumpNTAGPages handles it.
+	if rsp[0] != 0xD5 || rsp[1] != 0x43 || rsp[2] != 0x00 {
+		return nil, fmt.Errorf("FAST_READ: unexpected reader response prefix %02X %02X %02X (not PN532 InCommunicateThru)", rsp[0], rsp[1], rsp[2])
+	}
+	pageCount := endPage - startPage + 1
+	expected := pageCount * 4
+	data := rsp[3 : len(rsp)-2] // strip D5 43 00 prefix and 90 00 suffix
+	if len(data) < expected {
+		return nil, fmt.Errorf("FAST_READ short response: got %d bytes, want %d", len(data), expected)
+	}
+	return data[:expected], nil
+}
+
+// ntagMaxPage returns the last valid page index for a given NTAG/Ultralight card type.
+func ntagMaxPage(cardType string) int {
+	switch cardType {
+	case "NTAG216":
+		return 230 // 231 pages total
+	case "NTAG215":
+		return 134 // 135 pages total
+	case "MIFARE Ultralight C":
+		return 47 // 48 pages total
+	case "NTAG213":
+		return 44 // 45 pages total
+	case "MIFARE Ultralight":
+		return 15 // 16 pages total
+	default:
+		return 44 // Safe default
+	}
+}
+
+// DumpNTAGPages reads all pages from an NTAG/Ultralight card and returns them as a slice of
+// lowercase hex strings (4 bytes / 8 hex chars each). Uses FAST_READ for efficiency; falls
+// back to page-by-page reads if the reader does not support it.
+func DumpNTAGPages(card *scard.Card, cardInfo *Card) ([]string, error) {
+	maxPage := ntagMaxPage(cardInfo.Type)
+	pages := make([]string, 0, maxPage+1)
+
+	const chunkSize = 32 // 32 pages × 4 bytes = 128 bytes — safe for all readers
+	for start := 0; start <= maxPage; start += chunkSize {
+		end := start + chunkSize - 1
+		if end > maxPage {
+			end = maxPage
+		}
+
+		data, err := readNTAGPageRange(card, start, end)
+		if err == nil {
+			// Split into 4-byte pages
+			for i := 0; i+4 <= len(data); i += 4 {
+				pages = append(pages, hex.EncodeToString(data[i:i+4]))
+			}
+		} else {
+			// Fallback: page-by-page
+			for p := start; p <= end; p++ {
+				pageData, err2 := readNTAGPage(card, p)
+				if err2 != nil {
+					// Stop on first error — the remaining pages likely don't exist
+					return pages, nil
+				}
+				pages = append(pages, hex.EncodeToString(pageData))
+			}
+		}
+	}
+	return pages, nil
+}
+
+// DumpMifareBlocks reads all accessible data blocks from a MIFARE Classic 1K card.
+// Per sector it tries a sequence of common keys (plus the Creality UID-derived key)
+// using both Key A and Key B. Sector trailer blocks are skipped.
+// Returns: blocks map (block number → 16-byte hex), failed block numbers, error.
+func DumpMifareBlocks(card *scard.Card, uid string) (map[int]string, []int, error) {
+	// Build ordered key list; Creality UID-derived key covers most already-written tags
+	keysToTry := [][]byte{
+		{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, // Factory/transport default
+	}
+	if ck := deriveCrealityKey(uid); ck != nil {
+		keysToTry = append(keysToTry, ck) // Creality CFS UID-derived key
+	}
+	keysToTry = append(keysToTry,
+		[]byte{0xD3, 0xF7, 0xD3, 0xF7, 0xD3, 0xF7}, // NFC Forum default
+		[]byte{0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5}, // MAD key
+		[]byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, // Zero key
+	)
+
+	blocks := make(map[int]string)
+	var failedBlocks []int
+
+	for sector := 0; sector < 16; sector++ { // MIFARE Classic 1K: 16 sectors × 4 blocks
+		authBlock := sector*4 + 3
+		authenticated := false
+
+		for _, key := range keysToTry {
+			// Load key into reader key slot 0
+			loadKeyCmd := []byte{0xFF, 0x82, 0x00, 0x00, 0x06}
+			loadKeyCmd = append(loadKeyCmd, key...)
+			rsp, err := card.Transmit(loadKeyCmd)
+			if err != nil || len(rsp) < 2 || rsp[len(rsp)-2] != 0x90 {
+				continue
+			}
+
+			// Try Key A
+			authCmd := []byte{0xFF, 0x86, 0x00, 0x00, 0x05, 0x01, 0x00, byte(authBlock), 0x60, 0x00}
+			rsp, err = card.Transmit(authCmd)
+			if err == nil && len(rsp) >= 2 && rsp[len(rsp)-2] == 0x90 {
+				authenticated = true
+				break
+			}
+
+			// Try Key B
+			authCmd = []byte{0xFF, 0x86, 0x00, 0x00, 0x05, 0x01, 0x00, byte(authBlock), 0x61, 0x00}
+			rsp, err = card.Transmit(authCmd)
+			if err == nil && len(rsp) >= 2 && rsp[len(rsp)-2] == 0x90 {
+				authenticated = true
+				break
+			}
+		}
+
+		if !authenticated {
+			// All 3 data blocks in this sector are inaccessible
+			for offset := 0; offset <= 2; offset++ {
+				failedBlocks = append(failedBlocks, sector*4+offset)
+			}
+			continue
+		}
+
+		// Read the 3 data blocks (skip sector trailer at sector*4+3)
+		for offset := 0; offset <= 2; offset++ {
+			blockNum := sector*4 + offset
+			readCmd := []byte{0xFF, 0xB0, 0x00, byte(blockNum), 0x10}
+			rsp, err := card.Transmit(readCmd)
+			if err != nil || len(rsp) < 18 || rsp[len(rsp)-2] != 0x90 {
+				failedBlocks = append(failedBlocks, blockNum)
+				continue
+			}
+			blocks[blockNum] = hex.EncodeToString(rsp[:16])
+		}
+	}
+
+	return blocks, failedBlocks, nil
+}
+
+// CardRawDump contains the full raw memory dump of an NFC card.
+type CardRawDump struct {
+	UID          string            `json:"uid"`
+	Type         string            `json:"type"`
+	Pages        []string          `json:"pages,omitempty"`        // NTAG/Ultralight: one 8-hex-char string per page
+	Blocks       map[string]string `json:"blocks,omitempty"`       // MIFARE Classic: block index (string) → 32-hex-char string
+	FailedBlocks []int             `json:"failedBlocks,omitempty"` // MIFARE Classic: block numbers that could not be authenticated
+}
+
+// dumpCardRawFromInfo performs the raw memory dump using an already-fetched Card.
+// This is the internal implementation shared by DumpCardRaw and GetCardFull to
+// avoid calling GetCardUID twice when both card metadata and raw dump are needed.
+func dumpCardRawFromInfo(readerName string, cardInfo *Card) (*CardRawDump, error) {
+	dump := &CardRawDump{
+		UID:  cardInfo.UID,
+		Type: cardInfo.Type,
+	}
+
+	switch cardInfo.Type {
+	case "NTAG213", "NTAG215", "NTAG216", "MIFARE Ultralight", "MIFARE Ultralight C", "MIFARE Classic":
+		ctx, err := scard.EstablishContext()
+		if err != nil {
+			return nil, fmt.Errorf("failed to establish context: %w", err)
+		}
+		defer ctx.Release()
+
+		card, err := ctx.Connect(readerName, scard.ShareShared, scard.ProtocolAny)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect to reader: %w", err)
+		}
+		defer card.Disconnect(scard.LeaveCard)
+
+		if cardInfo.Type == "MIFARE Classic" {
+			intBlocks, failedBlocks, err := DumpMifareBlocks(card, cardInfo.UID)
+			if err != nil {
+				return nil, fmt.Errorf("MIFARE block dump failed: %w", err)
+			}
+			dump.Blocks = make(map[string]string, len(intBlocks))
+			for k, v := range intBlocks {
+				dump.Blocks[strconv.Itoa(k)] = v
+			}
+			if len(failedBlocks) > 0 {
+				dump.FailedBlocks = failedBlocks
+			}
+		} else {
+			pages, err := DumpNTAGPages(card, cardInfo)
+			if err != nil {
+				return nil, fmt.Errorf("NTAG page dump failed: %w", err)
+			}
+			dump.Pages = pages
+		}
+
+	default:
+		// ICode SLIX (OpenPrintTag) and unknown types: return UID+type only.
+		// OpenPrintTag is already fully decoded in card_detected (dataType: "openprinttag").
+	}
+
+	return dump, nil
+}
+
+// DumpCardRaw reads the full raw memory of the card currently on readerName.
+// For NTAG/Ultralight tags it returns all pages; for MIFARE Classic it returns all
+// accessible data blocks (trying common keys including Creality's UID-derived key).
+// ISO 15693 / OpenPrintTag cards are not raw-dumped here — the card_detected event
+// already carries the fully decoded payload for those.
+func DumpCardRaw(readerName string) (*CardRawDump, error) {
+	cardInfo, err := GetCardUID(readerName)
+	if err != nil {
+		return nil, err
+	}
+	return dumpCardRawFromInfo(readerName, cardInfo)
+}
+
+// GetCardFull returns all available information about the card on readerName:
+// the standard card metadata + NDEF data (like GetCardUID) merged with a full
+// raw memory dump (like DumpCardRaw). This is the "give me everything" call.
+// For NTAG/Ultralight the Pages field is populated; for MIFARE Classic the
+// Blocks and FailedBlocks fields are populated. OpenPrintTag/ICode cards return
+// only the parsed NDEF payload (already complete from card_detected).
+func GetCardFull(readerName string) (*Card, error) {
+	cardInfo, err := GetCardUID(readerName)
+	if err != nil {
+		return nil, err
+	}
+
+	dump, err := dumpCardRawFromInfo(readerName, cardInfo)
+	if err != nil {
+		// Dump failure is non-fatal — return the card info we have without raw data.
+		logging.Debug(logging.CatCard, "GetCardFull: raw dump failed, returning card info only", map[string]any{
+			"uid":   cardInfo.UID,
+			"error": err.Error(),
+		})
+		return cardInfo, nil
+	}
+
+	cardInfo.Pages = dump.Pages
+	cardInfo.Blocks = dump.Blocks
+	cardInfo.FailedBlocks = dump.FailedBlocks
+
+	return cardInfo, nil
 }

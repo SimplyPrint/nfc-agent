@@ -67,6 +67,16 @@ class Card:
     data_type: Optional[CardDataType] = None
     """Type of data stored."""
 
+    pages: Optional[list[str]] = None
+    """NTAG/Ultralight pages as hex strings (4 bytes each). Present in read_card_full responses."""
+
+    blocks: Optional[dict[str, str]] = None
+    """MIFARE Classic blocks as hex strings (16 bytes each), keyed by block number string.
+    Present in read_card_full responses."""
+
+    failed_blocks: Optional[list[int]] = None
+    """Block numbers that could not be read due to unknown keys. Present in read_card_full responses."""
+
 
 @dataclass
 class VersionInfo:
@@ -269,3 +279,55 @@ class SupportedReadersResponse:
     """Response from the supported readers endpoint."""
 
     readers: list[SupportedReader]
+
+
+@dataclass
+class CardRawDump:
+    """Raw memory dump of an NFC card."""
+
+    uid: str
+    """Card UID (hex string)."""
+
+    type: str
+    """Card type (e.g., 'NTAG215', 'MIFARE Classic')."""
+
+    pages: Optional[list[str]] = None
+    """NTAG/Ultralight pages as hex strings (4 bytes each). Present for NTAG/Ultralight cards."""
+
+    blocks: Optional[dict[str, str]] = None
+    """MIFARE Classic blocks as hex strings (16 bytes each), keyed by block number string.
+    Present for MIFARE Classic cards."""
+
+    failed_blocks: Optional[list[int]] = None
+    """Block numbers that could not be read due to unknown keys. Present for MIFARE Classic cards."""
+
+
+@dataclass
+class CardDataEvent:
+    """Payload for card_data server-pushed event.
+
+    Fires after card_detected when includeRaw=True in subscribe(),
+    or as response to dump_card().
+    """
+
+    reader_index: int
+    """Reader index where card was detected."""
+
+    reader_name: str
+    """Reader name."""
+
+    uid: str
+    """Card UID (hex string)."""
+
+    type: str
+    """Card type (e.g., 'NTAG215', 'MIFARE Classic')."""
+
+    pages: Optional[list[str]] = None
+    """NTAG/Ultralight pages as hex strings (4 bytes each). Present for NTAG/Ultralight cards."""
+
+    blocks: Optional[dict[str, str]] = None
+    """MIFARE Classic blocks as hex strings (16 bytes each), keyed by block number string.
+    Present for MIFARE Classic cards."""
+
+    failed_blocks: Optional[list[int]] = None
+    """Block numbers that could not be read due to unknown keys. Present for MIFARE Classic cards."""

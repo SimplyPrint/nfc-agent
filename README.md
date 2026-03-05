@@ -202,13 +202,15 @@ Configure via environment variables:
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/v1/readers` | List connected readers |
-| `GET` | `/v1/readers/{n}/card` | Read card on reader N. Add `?refresh=true` to bypass the detection cache and force a fresh read from the physical card. |
+| `GET` | `/v1/readers/{n}/card` | Read card metadata + NDEF. **Fast** — use this for polling/detection. Add `?refresh=true` to bypass cache. |
 | `POST` | `/v1/readers/{n}/card` | Write data to card |
 | `POST` | `/v1/readers/{n}/erase` | Erase card data |
 | `POST` | `/v1/readers/{n}/lock` | Lock card (permanent!) |
 | `POST` | `/v1/readers/{n}/password` | Set password protection |
 | `DELETE` | `/v1/readers/{n}/password` | Remove password |
 | `POST` | `/v1/readers/{n}/records` | Write multiple NDEF records |
+| `GET` | `/v1/readers/{n}/read` | **Unified read** — metadata + NDEF + full raw memory dump in one call. **Slow** (full memory read — call once on demand, not in a poll loop). |
+| `GET` | `/v1/readers/{n}/dump` | Raw memory dump only, no NDEF metadata. Same speed as `/read`. |
 | `GET` | `/v1/readers/{n}/mifare/{block}` | Read MIFARE Classic block |
 | `POST` | `/v1/readers/{n}/mifare/{block}` | Write MIFARE Classic block |
 | `POST` | `/v1/readers/{n}/mifare/batch` | Write multiple MIFARE Classic blocks |
@@ -244,9 +246,11 @@ Connect to `ws://127.0.0.1:32145/v1/ws` for real-time card events.
 
 **Message Types:**
 - `list_readers` - Get connected readers
-- `read_card` - Read card data
+- `read_card` - Read card metadata + NDEF. **Fast** — use for detection/polling.
+- `read_card_full` - **Unified read** — metadata + NDEF + full raw memory dump. **Slow** — call once on demand, not in a loop.
+- `dump_card` - Raw memory dump only, no NDEF. Same speed as `read_card_full`.
 - `write_card` - Write data to card
-- `subscribe` / `unsubscribe` - Real-time card detection
+- `subscribe` / `unsubscribe` - Real-time card detection (add `"includeRaw":true` to also receive `card_data` events with full memory dump)
 - `erase_card`, `lock_card`, `set_password`, `remove_password`
 - `read_mifare_block`, `write_mifare_block`, `write_mifare_blocks` - Raw MIFARE Classic block access
 - `read_ultralight_page`, `write_ultralight_page`, `write_ultralight_pages` - Raw MIFARE Ultralight page access
@@ -257,6 +261,7 @@ Connect to `ws://127.0.0.1:32145/v1/ws` for real-time card events.
 
 **Events:**
 - `card_detected` - Card placed on reader
+- `card_data` - Full raw memory dump (fired after `card_detected` when subscribed with `includeRaw:true`, or response to `dump_card`)
 - `card_removed` - Card removed from reader
 
 See the SDK documentation for detailed API reference: [JavaScript](sdk/javascript/README.md) | [Python](sdk/python/README.md)

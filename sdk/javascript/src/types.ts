@@ -37,6 +37,12 @@ export interface Card {
   data?: string;
   /** Type of data stored */
   dataType?: CardDataType;
+  /** NTAG/Ultralight pages as hex strings (4 bytes each). Present in read_card_full responses. */
+  pages?: string[];
+  /** MIFARE Classic blocks as hex strings (16 bytes each), keyed by block number. Present in read_card_full responses. */
+  blocks?: Record<string, string>;
+  /** Block numbers that could not be read due to unknown keys. Present in read_card_full responses. */
+  failedBlocks?: number[];
 }
 
 /**
@@ -135,12 +141,14 @@ export type WSMessageType =
   | 'write_ultralight_pages'
   | 'derive_uid_key_aes'
   | 'aes_encrypt_and_write_block'
-  | 'write_mifare_sector_trailer';
+  | 'write_mifare_sector_trailer'
+  | 'dump_card'
+  | 'read_card_full';
 
 /**
  * WebSocket event types (server push)
  */
-export type WSEventType = 'card_detected' | 'card_removed';
+export type WSEventType = 'card_detected' | 'card_removed' | 'card_data';
 
 /**
  * Base WebSocket message structure
@@ -596,4 +604,56 @@ export interface WriteMifareSectorTrailerPayload {
   accessBits?: string;
   authKey: string;
   authKeyType?: MifareKeyType;
+}
+
+// ============================================================================
+// Raw Card Dump Types
+// ============================================================================
+
+/**
+ * Raw memory dump of an NFC card
+ */
+export interface CardRawDump {
+  /** Card UID (hex string) */
+  uid: string;
+  /** Card type (e.g., "NTAG215", "MIFARE Classic") */
+  type: string;
+  /** NTAG/Ultralight pages as hex strings (4 bytes each). Present for NTAG/Ultralight cards. */
+  pages?: string[];
+  /** MIFARE Classic blocks as hex strings (16 bytes each), keyed by block number. Present for MIFARE Classic cards. */
+  blocks?: Record<string, string>;
+  /** Block numbers that could not be read due to unknown keys. Present for MIFARE Classic cards. */
+  failedBlocks?: number[];
+}
+
+/**
+ * Payload for card_data server-pushed event (fires after card_detected when includeRaw is true,
+ * or as response to dump_card command)
+ */
+export interface CardDataEvent {
+  /** Reader index */
+  readerIndex: number;
+  /** Reader name */
+  readerName: string;
+  /** Card UID (hex string) */
+  uid: string;
+  /** Card type (e.g., "NTAG215", "MIFARE Classic") */
+  type: string;
+  /** NTAG/Ultralight pages as hex strings (4 bytes each). Present for NTAG/Ultralight cards. */
+  pages?: string[];
+  /** MIFARE Classic blocks as hex strings (16 bytes each), keyed by block number. Present for MIFARE Classic cards. */
+  blocks?: Record<string, string>;
+  /** Block numbers that could not be read due to unknown keys. Present for MIFARE Classic cards. */
+  failedBlocks?: number[];
+}
+
+/**
+ * Options for subscribing to card events with raw data
+ */
+export interface SubscribeOptions {
+  /**
+   * If true, a follow-up card_data event will be sent after card_detected
+   * containing the full raw memory dump of the card. Default: false.
+   */
+  includeRaw?: boolean;
 }

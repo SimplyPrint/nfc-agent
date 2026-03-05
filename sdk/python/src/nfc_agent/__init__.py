@@ -35,8 +35,10 @@ from .exceptions import (
 from .poller import CardPoller
 from .types import (
     Card,
+    CardDataEvent,
     CardDataType,
     CardDetectedEvent,
+    CardRawDump,
     CardRemovedEvent,
     DerivedKeyData,
     HealthInfo,
@@ -79,6 +81,8 @@ __all__ = [
     "HealthInfo",
     "CardDetectedEvent",
     "CardRemovedEvent",
+    "CardRawDump",
+    "CardDataEvent",
     "NDEFRecord",
     "MifareKeyType",
     "MifareBlockData",

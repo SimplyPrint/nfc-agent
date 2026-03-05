@@ -60,6 +60,10 @@ export type {
   DeriveUIDKeyOptions,
   AESEncryptWriteOptions,
   WriteMifareSectorTrailerOptions,
+  // Raw dump types
+  CardRawDump,
+  CardDataEvent,
+  SubscribeOptions,
 } from './types.js';
 
 // Convenience aliases for CDN/browser usage

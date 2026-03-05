@@ -10,6 +10,9 @@ import type {
   HealthInfo,
   CardDetectedEvent,
   CardRemovedEvent,
+  CardDataEvent,
+  CardRawDump,
+  SubscribeOptions,
   MifareBlockData,
   MifareReadOptions,
   MifareWriteOptions,
@@ -34,6 +37,7 @@ const DEFAULT_RECONNECT_INTERVAL = 3000;
 
 type CardDetectedCallback = (event: CardDetectedEvent) => void;
 type CardRemovedCallback = (event: CardRemovedEvent) => void;
+type CardDataCallback = (event: CardDataEvent) => void;
 type ConnectionCallback = () => void;
 type ErrorCallback = (error: Error) => void;
 
@@ -46,6 +50,7 @@ interface PendingRequest {
 interface EventListeners {
   card_detected: CardDetectedCallback[];
   card_removed: CardRemovedCallback[];
+  card_data: CardDataCallback[];
   connected: ConnectionCallback[];
   disconnected: ConnectionCallback[];
   error: ErrorCallback[];
@@ -72,6 +77,7 @@ export class NFCAgentWebSocket {
   private listeners: EventListeners = {
     card_detected: [],
     card_removed: [],
+    card_data: [],
     connected: [],
     disconnected: [],
     error: [],
@@ -233,6 +239,18 @@ export class NFCAgentWebSocket {
       return;
     }
 
+    if (data.type === 'card_data') {
+      const payload = data.payload as CardDataEvent;
+      for (const callback of this.listeners.card_data) {
+        try {
+          callback(payload);
+        } catch {
+          // Ignore callback errors
+        }
+      }
+      return;
+    }
+
     // Handle request responses
     if (data.id) {
       const pending = this.pendingRequests.get(data.id);
@@ -299,12 +317,13 @@ export class NFCAgentWebSocket {
    */
   on(event: 'card_detected', callback: CardDetectedCallback): this;
   on(event: 'card_removed', callback: CardRemovedCallback): this;
+  on(event: 'card_data', callback: CardDataCallback): this;
   on(event: 'connected', callback: ConnectionCallback): this;
   on(event: 'disconnected', callback: ConnectionCallback): this;
   on(event: 'error', callback: ErrorCallback): this;
   on(
-    event: 'card_detected' | 'card_removed' | 'connected' | 'disconnected' | 'error',
-    callback: CardDetectedCallback | CardRemovedCallback | ConnectionCallback | ErrorCallback
+    event: 'card_detected' | 'card_removed' | 'card_data' | 'connected' | 'disconnected' | 'error',
+    callback: CardDetectedCallback | CardRemovedCallback | CardDataCallback | ConnectionCallback | ErrorCallback
   ): this {
     const listeners = this.listeners[event as keyof EventListeners];
     if (listeners) {
@@ -319,12 +338,13 @@ export class NFCAgentWebSocket {
    */
   off(event: 'card_detected', callback: CardDetectedCallback): this;
   off(event: 'card_removed', callback: CardRemovedCallback): this;
+  off(event: 'card_data', callback: CardDataCallback): this;
   off(event: 'connected', callback: ConnectionCallback): this;
   off(event: 'disconnected', callback: ConnectionCallback): this;
   off(event: 'error', callback: ErrorCallback): this;
   off(
-    event: 'card_detected' | 'card_removed' | 'connected' | 'disconnected' | 'error',
-    callback: CardDetectedCallback | CardRemovedCallback | ConnectionCallback | ErrorCallback
+    event: 'card_detected' | 'card_removed' | 'card_data' | 'connected' | 'disconnected' | 'error',
+    callback: CardDetectedCallback | CardRemovedCallback | CardDataCallback | ConnectionCallback | ErrorCallback
   ): this {
     const listeners = this.listeners[event as keyof EventListeners];
     if (listeners) {
@@ -705,9 +725,45 @@ export class NFCAgentWebSocket {
   /**
    * Subscribe to card events on a reader
    * @param readerIndex - Index of the reader to subscribe to
+   * @param options - Optional subscribe options
+   * @param options.includeRaw - If true, a card_data event fires after card_detected with full raw memory dump
    */
-  async subscribe(readerIndex: number): Promise<void> {
-    await this.request('subscribe', { readerIndex });
+  async subscribe(readerIndex: number, options?: SubscribeOptions): Promise<void> {
+    await this.request('subscribe', { readerIndex, includeRaw: options?.includeRaw ?? false });
+  }
+
+  /**
+   * Dump raw card memory on demand
+   * @param readerIndex - Index of the reader (0-based)
+   * @returns Raw card memory dump
+   */
+  async dumpCard(readerIndex: number): Promise<CardRawDump> {
+    try {
+      return await this.request<CardRawDump>('dump_card', { readerIndex });
+    } catch (error) {
+      if (error instanceof NFCAgentError) {
+        throw new CardError(error.message);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Read all card data in one call: metadata, NDEF, and full raw memory dump.
+   * For NTAG/Ultralight the returned Card has a `pages` field.
+   * For MIFARE Classic it has `blocks` and optionally `failedBlocks`.
+   * @param readerIndex - Index of the reader (0-based)
+   * @returns Card with metadata, NDEF data, and raw memory dump
+   */
+  async readCardFull(readerIndex: number): Promise<Card> {
+    try {
+      return await this.request<Card>('read_card_full', { readerIndex });
+    } catch (error) {
+      if (error instanceof NFCAgentError) {
+        throw new CardError(error.message);
+      }
+      throw error;
+    }
   }
 
   /**
