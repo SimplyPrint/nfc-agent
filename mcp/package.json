@@ -1,0 +1,39 @@
+{
+  "name": "nfc-agent-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for NFC Agent — read/write NFC cards, SimplyPrint filament flashing, whatt.io materials",
+  "type": "module",
+  "bin": {
+    "nfc-agent-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "inspect": "npx @modelcontextprotocol/inspector node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.9.0",
+    "@simplyprint/nfc-agent": "file:../sdk/javascript",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "mcp",
+    "nfc",
+    "rfid",
+    "ntag",
+    "mifare",
+    "simplyprint",
+    "filament"
+  ],
+  "author": "SimplyPrint",
+  "license": "MIT"
+}
