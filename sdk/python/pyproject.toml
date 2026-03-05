@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nfc-agent"
-version = "0.5.1"
+version = "0.5.2"
 description = "Python SDK for NFC Agent - read and write NFC cards via local nfc-agent server"
 readme = "README.md"
 license = "MIT"
