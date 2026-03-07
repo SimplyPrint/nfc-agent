@@ -431,6 +431,14 @@ func (c *WSClient) handleReadCard(id string, payload json.RawMessage) {
 	c.sendResponse(id, "card", card)
 }
 
+// resetLastUID clears the last-seen UID for a reader so the polling loop
+// re-sends a card_detected event with fresh NDEF data after a write/erase.
+func (c *WSClient) resetLastUID(readerName string) {
+	c.mu.Lock()
+	c.lastUIDs[readerName] = ""
+	c.mu.Unlock()
+}
+
 func (c *WSClient) handleWriteCard(id string, payload json.RawMessage) {
 	var req struct {
 		ReaderIndex int    `json:"readerIndex"`
@@ -482,6 +490,7 @@ func (c *WSClient) handleWriteCard(id string, payload json.RawMessage) {
 		return
 	}
 
+	c.resetLastUID(readers[req.ReaderIndex].Name)
 	c.sendResponse(id, "write_success", map[string]string{"success": "data written"})
 }
 
@@ -505,6 +514,7 @@ func (c *WSClient) handleEraseCard(id string, payload json.RawMessage) {
 		return
 	}
 
+	c.resetLastUID(readers[req.ReaderIndex].Name)
 	c.sendResponse(id, "erase_success", map[string]string{"success": "card erased"})
 }
 
@@ -635,6 +645,7 @@ func (c *WSClient) handleWriteRecords(id string, payload json.RawMessage) {
 		return
 	}
 
+	c.resetLastUID(readers[req.ReaderIndex].Name)
 	c.sendResponse(id, "records_written", map[string]string{"success": "records written"})
 }
 
@@ -981,6 +992,7 @@ func (c *WSClient) handleWriteMifareBlock(id string, payload json.RawMessage) {
 		return
 	}
 
+	c.resetLastUID(readers[req.ReaderIndex].Name)
 	c.sendResponse(id, "mifare_write_success", map[string]interface{}{
 		"success": true,
 		"block":   req.Block,
@@ -1048,6 +1060,7 @@ func (c *WSClient) handleWriteMifareBlocks(id string, payload json.RawMessage) {
 		}
 	}
 
+	c.resetLastUID(readers[req.ReaderIndex].Name)
 	c.sendResponse(id, "mifare_write_blocks_success", map[string]interface{}{
 		"results": results,
 		"written": successCount,
@@ -1125,6 +1138,7 @@ func (c *WSClient) handleWriteUltralightPage(id string, payload json.RawMessage)
 		return
 	}
 
+	c.resetLastUID(readers[req.ReaderIndex].Name)
 	c.sendResponse(id, "ultralight_write_success", map[string]interface{}{
 		"success": true,
 		"page":    req.Page,
@@ -1190,6 +1204,7 @@ func (c *WSClient) handleWriteUltralightPages(id string, payload json.RawMessage
 		}
 	}
 
+	c.resetLastUID(readers[req.ReaderIndex].Name)
 	c.sendResponse(id, "ultralight_write_pages_success", map[string]interface{}{
 		"results": results,
 		"written": successCount,
@@ -1274,6 +1289,7 @@ func (c *WSClient) handleAESEncryptAndWriteBlock(id string, payload json.RawMess
 		return
 	}
 
+	c.resetLastUID(readers[req.ReaderIndex].Name)
 	c.sendResponse(id, "aes_write_success", map[string]interface{}{
 		"success": true,
 		"block":   req.Block,
@@ -1335,6 +1351,7 @@ func (c *WSClient) handleWriteMifareSectorTrailer(id string, payload json.RawMes
 		return
 	}
 
+	c.resetLastUID(readers[req.ReaderIndex].Name)
 	c.sendResponse(id, "mifare_sector_trailer_written", map[string]interface{}{
 		"success": true,
 		"block":   req.Block,

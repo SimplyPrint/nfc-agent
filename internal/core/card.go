@@ -896,7 +896,16 @@ func WriteDataWithURL(readerName string, data []byte, dataType string, url strin
 			return fmt.Errorf("failed to write NDEF message: %w", err)
 		}
 	} else {
-		// NTAG and other cards use page-based writes
+		// NTAG and other cards use page-based writes.
+		// Zero-fill remaining user pages after the NDEF data so leftover
+		// content from a previous, longer NDEF message is erased.
+		if cardInfo.Size > 0 {
+			totalUserBytes := cardInfo.Size
+			if len(ndefMessage) < totalUserBytes {
+				padding := make([]byte, totalUserBytes-len(ndefMessage))
+				ndefMessage = append(ndefMessage, padding...)
+			}
+		}
 		if err := writeNTAGPages(card, 4, ndefMessage); err != nil {
 			return fmt.Errorf("failed to write NDEF message: %w", err)
 		}
@@ -1836,9 +1845,22 @@ func EraseCard(readerName string) error {
 	}
 	defer card.Disconnect(scard.LeaveCard)
 
+	// Detect card type to determine how many pages to zero out
+	status, statusErr := card.Status()
+	var totalUserBytes int
+	if statusErr == nil {
+		cardInfo := &Card{ATR: hex.EncodeToString(status.Atr)}
+		detectCardType(card, cardInfo)
+		totalUserBytes = cardInfo.Size
+	}
+
 	// Write an empty NDEF message (just TLV header and terminator)
+	// then zero-fill remaining user pages to fully erase old data.
 	// 0x03 = NDEF TLV, 0x00 = length, 0xFE = terminator
 	emptyNDEF := []byte{0x03, 0x00, 0xFE, 0x00}
+	if totalUserBytes > len(emptyNDEF) {
+		emptyNDEF = append(emptyNDEF, make([]byte, totalUserBytes-len(emptyNDEF))...)
+	}
 
 	if err := writeNTAGPages(card, 4, emptyNDEF); err != nil {
 		return fmt.Errorf("failed to erase card: %w", err)
@@ -2134,6 +2156,10 @@ func WriteMultipleRecords(readerName string, records []NDEFRecord) error {
 	atr := hex.EncodeToString(status.Atr)
 	isISO15693 := contains(atr, "03060b")
 
+	// Detect card type for size info (used to zero-fill remaining pages)
+	cardInfo := &Card{ATR: atr}
+	detectCardType(card, cardInfo)
+
 	// Build multi-record NDEF message
 	var ndefRecords []byte
 	for i, rec := range records {
@@ -2215,10 +2241,17 @@ func WriteMultipleRecords(readerName string, records []NDEFRecord) error {
 		}
 	} else {
 		// NTAG (Type 2) tags: NDEF at page 4
+		// Zero-fill remaining user pages to erase leftover data from previous writes
+		if cardInfo.Size > 0 && len(tlv) < cardInfo.Size {
+			tlv = append(tlv, make([]byte, cardInfo.Size-len(tlv))...)
+		}
 		if err := writeNTAGPages(card, 4, tlv); err != nil {
 			return fmt.Errorf("failed to write NDEF records: %w", err)
 		}
 	}
+
+	// Invalidate cache so next read reflects the newly written data.
+	clearCacheForConnectedCard(card)
 
 	return nil
 }
