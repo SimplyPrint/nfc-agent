@@ -25,26 +25,27 @@ const (
 type MaterialType uint8
 
 const (
-	// FFF material types
+	// FFF material types — valeurs conformes spec OpenPrintTag (material_type_enum.yaml)
 	MaterialTypePLA      MaterialType = 0
-	MaterialTypeABS      MaterialType = 1
-	MaterialTypePETG     MaterialType = 2
-	MaterialTypeASA      MaterialType = 3
-	MaterialTypePC       MaterialType = 4
-	MaterialTypeNylon    MaterialType = 5
-	MaterialTypeTPU      MaterialType = 6
-	MaterialTypePVA      MaterialType = 7
-	MaterialTypeHIPS     MaterialType = 8
-	MaterialTypePP       MaterialType = 9
-	MaterialTypePEI      MaterialType = 10
-	MaterialTypePEEK     MaterialType = 11
-	MaterialTypePA       MaterialType = 12
-	MaterialTypePACF     MaterialType = 13
-	MaterialTypePAGF     MaterialType = 14
-	MaterialTypePLACF    MaterialType = 15
-	MaterialTypePLAGF    MaterialType = 16
-	MaterialTypePETGCF   MaterialType = 17
-	MaterialTypePETGGF   MaterialType = 18
+	MaterialTypePETG     MaterialType = 1
+	MaterialTypeTPU      MaterialType = 2
+	MaterialTypeABS      MaterialType = 3
+	MaterialTypeASA      MaterialType = 4
+	MaterialTypePC       MaterialType = 5
+	MaterialTypePCTG     MaterialType = 6
+	MaterialTypePP       MaterialType = 7
+	MaterialTypePA       MaterialType = 8  // PA6
+	MaterialTypeHIPS     MaterialType = 14
+	MaterialTypePEI      MaterialType = 17
+	MaterialTypePVA      MaterialType = 20
+	MaterialTypePEEK     MaterialType = 22
+	MaterialTypeNylon    MaterialType = 56  // générique, hors spec de base
+	MaterialTypePACF     MaterialType = 100 // composite, valeur propriétaire
+	MaterialTypePAGF     MaterialType = 101
+	MaterialTypePLACF    MaterialType = 102
+	MaterialTypePLAGF    MaterialType = 103
+	MaterialTypePETGCF   MaterialType = 104
+	MaterialTypePETGGF   MaterialType = 105
 	MaterialTypeOther    MaterialType = 255
 )
 
@@ -296,18 +297,19 @@ func materialClassToString(mc MaterialClass) string {
 func materialTypeToString(mt MaterialType) string {
 	names := map[MaterialType]string{
 		MaterialTypePLA:    "PLA",
-		MaterialTypeABS:    "ABS",
 		MaterialTypePETG:   "PETG",
+		MaterialTypeTPU:    "TPU",
+		MaterialTypeABS:    "ABS",
 		MaterialTypeASA:    "ASA",
 		MaterialTypePC:     "PC",
-		MaterialTypeNylon:  "Nylon",
-		MaterialTypeTPU:    "TPU",
-		MaterialTypePVA:    "PVA",
-		MaterialTypeHIPS:   "HIPS",
+		MaterialTypePCTG:   "PCTG",
 		MaterialTypePP:     "PP",
-		MaterialTypePEI:    "PEI",
-		MaterialTypePEEK:   "PEEK",
 		MaterialTypePA:     "PA",
+		MaterialTypeHIPS:   "HIPS",
+		MaterialTypePEI:    "PEI",
+		MaterialTypePVA:    "PVA",
+		MaterialTypePEEK:   "PEEK",
+		MaterialTypeNylon:  "Nylon",
 		MaterialTypePACF:   "PA-CF",
 		MaterialTypePAGF:   "PA-GF",
 		MaterialTypePLACF:  "PLA-CF",
