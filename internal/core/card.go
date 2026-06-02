@@ -895,6 +895,16 @@ func WriteDataWithURL(readerName string, data []byte, dataType string, url strin
 		if err := writeMifareClassic(card, ndefMessage); err != nil {
 			return fmt.Errorf("failed to write NDEF message: %w", err)
 		}
+	} else if cardInfo.Protocol == "NFC-V" {
+		// ISO 15693 (ICode SLI/SLIX/SLIX2): CC at block 0, NDEF TLV at block 1.
+		// Do NOT pad to card.Size — writing past block 79 causes errors on ICode SLIX2.
+		cc := []byte{0xE1, 0x40, 0x40, 0x00}
+		if err := writeNTAGPages(card, 0, cc); err != nil {
+			return fmt.Errorf("failed to write NDEF message: %w", err)
+		}
+		if err := writeNTAGPages(card, 1, ndefMessage); err != nil {
+			return fmt.Errorf("failed to write NDEF message: %w", err)
+		}
 	} else {
 		// NTAG and other cards use page-based writes.
 		// Zero-fill remaining user pages after the NDEF data so leftover
