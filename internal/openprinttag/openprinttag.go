@@ -174,6 +174,11 @@ type Response struct {
 	MaterialUUID  string `json:"materialUuid,omitempty"`
 	BrandUUID     string `json:"brandUuid,omitempty"`
 
+	// Brand-specific identifiers (MainSection keys 5-7)
+	BrandSpecificInstanceID string `json:"brandSpecificInstanceId,omitempty"`
+	BrandSpecificPackageID  string `json:"brandSpecificPackageId,omitempty"`
+	BrandSpecificMaterialID string `json:"brandSpecificMaterialId,omitempty"`
+
 	// Weight information
 	NominalWeight   float32 `json:"nominalWeight,omitempty"`
 	ConsumedWeight  float32 `json:"consumedWeight,omitempty"`
@@ -272,6 +277,11 @@ func (o *OpenPrintTag) ToResponse() *Response {
 	if len(o.Main.BrandUUID) == 16 {
 		resp.BrandUUID = formatUUID(o.Main.BrandUUID)
 	}
+
+	// Brand-specific identifiers
+	resp.BrandSpecificInstanceID = o.Main.BrandSpecificInstanceID
+	resp.BrandSpecificPackageID  = o.Main.BrandSpecificPackageID
+	resp.BrandSpecificMaterialID = o.Main.BrandSpecificMaterialID
 
 	// Convert color to hex string
 	if len(o.Main.PrimaryColor) >= 3 {
