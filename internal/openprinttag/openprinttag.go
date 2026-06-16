@@ -195,10 +195,25 @@ type Response struct {
 	SpoolWeight  float32 `json:"spoolWeight,omitempty"`  // empty container weight
 
 	// Temperature settings
-	MinPrintTemp uint16 `json:"minPrintTemp,omitempty"`
-	MaxPrintTemp uint16 `json:"maxPrintTemp,omitempty"`
-	MinBedTemp   uint16 `json:"minBedTemp,omitempty"`
-	MaxBedTemp   uint16 `json:"maxBedTemp,omitempty"`
+	MinPrintTemp   uint16 `json:"minPrintTemp,omitempty"`
+	MaxPrintTemp   uint16 `json:"maxPrintTemp,omitempty"`
+	MinBedTemp     uint16 `json:"minBedTemp,omitempty"`
+	MaxBedTemp     uint16 `json:"maxBedTemp,omitempty"`
+	PreheatTemp    uint16 `json:"preheatTemp,omitempty"`    // key 36
+	MinChamberTemp uint16 `json:"minChamberTemp,omitempty"` // key 39
+	ChamberTemp    uint16 `json:"chamberTemp,omitempty"`    // key 41
+
+	// GTIN
+	GTIN uint64 `json:"gtin,omitempty"` // key 4
+
+	// Length
+	NominalFullLength uint32 `json:"nominalFullLength,omitempty"` // key 53, mm
+
+	// Container dimensions (mm)
+	ContainerWidth     uint16 `json:"containerWidth,omitempty"`     // key 42
+	ContainerOuterDiam uint16 `json:"containerOuterDiam,omitempty"` // key 43
+	ContainerInnerDiam uint16 `json:"containerInnerDiam,omitempty"` // key 44
+	ContainerHoleDiam  uint16 `json:"containerHoleDiam,omitempty"`  // key 45
 
 	// Dates
 	ManufacturedDate uint32 `json:"manufacturedDate,omitempty"`
@@ -263,13 +278,22 @@ func (o *OpenPrintTag) ToResponse() *Response {
 		FilamentDiameter: o.Main.FilamentDiameter,
 		FilamentLength:   o.Main.ActualFullLength,
 		Density:          o.Main.Density,
-		MinPrintTemp:     o.Main.MinPrintTemp,
-		MaxPrintTemp:     o.Main.MaxPrintTemp,
-		MinBedTemp:       o.Main.MinBedTemp,
-		MaxBedTemp:       o.Main.MaxBedTemp,
-		ManufacturedDate: o.Main.ManufacturedDate,
-		ExpirationDate:   o.Main.ExpirationDate,
-		Workgroup:        o.Aux.Workgroup,
+		MinPrintTemp:       o.Main.MinPrintTemp,
+		MaxPrintTemp:       o.Main.MaxPrintTemp,
+		MinBedTemp:         o.Main.MinBedTemp,
+		MaxBedTemp:         o.Main.MaxBedTemp,
+		PreheatTemp:        o.Main.PreheatTemp,
+		MinChamberTemp:     o.Main.MinChamberTemp,
+		ChamberTemp:        o.Main.ChamberTemp,
+		GTIN:               o.Main.GTIN,
+		NominalFullLength:  o.Main.NominalFullLength,
+		ContainerWidth:     o.Main.ContainerWidth,
+		ContainerOuterDiam: o.Main.ContainerOuterDiameter,
+		ContainerInnerDiam: o.Main.ContainerInnerDiameter,
+		ContainerHoleDiam:  o.Main.ContainerHoleDiameter,
+		ManufacturedDate:   o.Main.ManufacturedDate,
+		ExpirationDate:     o.Main.ExpirationDate,
+		Workgroup:          o.Aux.Workgroup,
 	}
 
 	// Calculate remaining weight
