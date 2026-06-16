@@ -489,6 +489,7 @@ func (i *Input) ToOpenPrintTag() (*OpenPrintTag, error) {
 	opt.Main.NominalNettoFullWeight = i.NominalWeight
 	opt.Main.FilamentDiameter = i.FilamentDiameter
 	opt.Main.Density = i.Density
+	opt.Main.GTIN = i.GTIN
 	opt.Main.BrandSpecificInstanceID = i.BrandSpecificInstID
 	opt.Main.BrandSpecificPackageID = i.BrandSpecificPkgID
 	opt.Main.ActualNettoFullWeight = i.ActualWeight

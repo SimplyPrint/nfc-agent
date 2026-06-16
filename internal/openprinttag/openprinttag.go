@@ -222,6 +222,7 @@ type Input struct {
 	PackageUUID         string  `json:"packageUuid,omitempty"`
 	MaterialUUID        string  `json:"materialUuid,omitempty"`
 	BrandUUID           string  `json:"brandUuid,omitempty"`
+	GTIN                uint64  `json:"gtin,omitempty"`                // key 4
 	BrandSpecificInstID string  `json:"brandSpecificInstId,omitempty"` // key 5: brand_specific_id de l'instance
 	BrandSpecificPkgID  string  `json:"brandSpecificPkgId,omitempty"`  // key 6: brand_specific_id du package catalogue
 	FilamentDiameter float32 `json:"filamentDiameter,omitempty"`
