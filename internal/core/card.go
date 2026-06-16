@@ -1591,13 +1591,6 @@ func readNDEFData(card *scard.Card, cardInfo *Card) {
 
 			allData = append(allData, blockData...)
 
-			// Check for NDEF terminator
-			for _, b := range blockData {
-				if b == 0xFE {
-					goto done
-				}
-			}
-
 			// Check if we have complete NDEF message
 			if len(allData) > 2 && allData[0] == 0x03 {
 				var ndefLength, ndefStart int
@@ -1608,8 +1601,19 @@ func readNDEFData(card *scard.Card, cardInfo *Card) {
 					ndefLength = int(allData[1])
 					ndefStart = 2
 				}
-				if ndefStart > 0 && len(allData) >= ndefStart+ndefLength+1 {
-					break
+				if ndefStart > 0 {
+					if len(allData) >= ndefStart+ndefLength+1 {
+						break
+					}
+					// Skip 0xFE check inside NDEF payload — binary payloads (CBOR) may contain 0xFE as data
+					continue
+				}
+			}
+
+			// Check for NDEF terminator (only when NDEF header not yet parsed)
+			for _, b := range blockData {
+				if b == 0xFE {
+					goto done
 				}
 			}
 		}
@@ -1634,13 +1638,6 @@ func readNDEFData(card *scard.Card, cardInfo *Card) {
 
 			allData = append(allData, pageData...)
 
-			// Check for NDEF terminator
-			for _, b := range pageData {
-				if b == 0xFE {
-					goto done
-				}
-			}
-
 			// Check if we have complete NDEF message
 			if len(allData) > 2 && allData[0] == 0x03 {
 				var ndefLength, ndefStart int
@@ -1651,8 +1648,19 @@ func readNDEFData(card *scard.Card, cardInfo *Card) {
 					ndefLength = int(allData[1])
 					ndefStart = 2
 				}
-				if ndefStart > 0 && len(allData) >= ndefStart+ndefLength+1 {
-					break
+				if ndefStart > 0 {
+					if len(allData) >= ndefStart+ndefLength+1 {
+						break
+					}
+					// Skip 0xFE check inside NDEF payload — binary payloads (CBOR) may contain 0xFE as data
+					continue
+				}
+			}
+
+			// Check for NDEF terminator (only when NDEF header not yet parsed)
+			for _, b := range pageData {
+				if b == 0xFE {
+					goto done
 				}
 			}
 		}
