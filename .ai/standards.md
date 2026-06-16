@@ -53,6 +53,57 @@ The agent exposes raw block/page access via API. Creality, Anycubic, Qidi, etc. 
 - **Read:** `GET /readers/0/card` → response has `"dataType":"openprinttag"` with full parsed JSON
 - **Write:** `POST /readers/0/card` with `"dataType":"openprinttag"` and JSON material fields
 
+**ICode SLIX2 — physical format**
+
+- Expected CC bytes: `E1 40 27 01` (MLEN=39 blocks × 8 bytes = 312 usable bytes)
+- NDEF TLV: Type `0x03`, followed by CBOR payload, terminated by `0xFE`
+- AuxSection: ISO 15693 auxiliary memory — contains `consumedWeight` (key 0) and workgroup (key 1)
+- Reader required: **ACR1552U only** (ISO 15693 support)
+
+**CBOR key reference — complete table**
+
+| Key | Go field (Input) | JSON field (Response) | Description |
+|-----|------------------|-----------------------|-------------|
+| 0 | InstanceUUID | instanceUuid | UUIDv5(UID + materialUuid) — auto-generated |
+| 1 | PackageUUID | packageUuid | Package UUID |
+| 2 | MaterialUUID | materialUuid | Material UUID |
+| 3 | BrandUUID | brandUuid | Brand UUID |
+| 4 | GTIN | gtin | EAN-13 / GTIN product code |
+| 5 | BrandSpecificInstID | brandSpecificInstanceId | Brand's spool instance reference |
+| 6 | BrandSpecificPkgID | brandSpecificPackageId | Brand's package/product reference |
+| 8 | MaterialClass | materialClass | 0=FFF, 1=SLA |
+| 9 | MaterialType | materialType | Material type enum |
+| 10 | MaterialName | materialName | Material name / color |
+| 11 | BrandName | brandName | Brand name |
+| 16 | NominalWeight | nominalWeight | Nominal weight (g) |
+| 17 | ActualWeight | actualWeight | Actual measured weight (g) |
+| 18 | SpoolWeight | spoolWeight | Empty spool weight (g) |
+| 19 | PrimaryColor | primaryColor | RGBA hex color |
+| 29 | Density | density | Density (g/cm³) |
+| 30 | FilamentDiameter | filamentDiameter | Diameter (mm) |
+| 34 | MinPrintTemp | minPrintTemp | Min nozzle temp (°C) |
+| 35 | MaxPrintTemp | maxPrintTemp | Max nozzle temp (°C) |
+| 36 | PreheatTemp | preheatTemp | Preheat temp (°C) |
+| 37 | MinBedTemp | minBedTemp | Min bed temp (°C) |
+| 38 | MaxBedTemp | maxBedTemp | Max bed temp (°C) |
+| 39 | MinChamberTemp | minChamberTemp | Min chamber temp (°C) |
+| 41 | ChamberTemp | chamberTemp | Max chamber temp (°C) |
+| 42 | ContainerWidth | containerWidth | Spool width (mm) |
+| 43 | ContainerOuterDiam | containerOuterDiam | Outer diameter (mm) |
+| 44 | ContainerInnerDiam | containerInnerDiam | Inner diameter (mm) |
+| 45 | ContainerHoleDiam | containerHoleDiam | Hub hole diameter (mm) |
+| 53 | NominalFullLength | nominalFullLength | Nominal full length (mm) |
+| 54 | ActualFullLength | actualFullLength | Actual full length (mm) |
+| — | ManufacturedDate | manufacturedDate | Unix timestamp |
+
+**Critical rule — Input AND Response must be updated together**
+
+When adding a CBOR field, update **both structs** in `openprinttag.go`:
+1. `Input` struct + `ToOpenPrintTag()` in `codec.go` → **write** path
+2. `Response` struct + `ToResponse()` in `openprinttag.go` → **read** path
+
+Forgetting step 2: the field is encoded on the tag but missing from the `GET /card` JSON response.
+
 **Write example:**
 ```bash
 curl -X POST http://127.0.0.1:32145/v1/readers/0/card \
@@ -67,12 +118,16 @@ curl -X POST http://127.0.0.1:32145/v1/readers/0/card \
       "materialType": 0,
       "primaryColor": "#1A1A1A",
       "minPrintTemp": 215,
-      "maxPrintTemp": 230
+      "maxPrintTemp": 230,
+      "minBedTemp": 60,
+      "maxBedTemp": 60,
+      "preheatTemp": 170,
+      "gtin": 8594178550112
     }
   }'
 ```
 
-**materialType values:** 0=PLA, 1=ABS, 2=PETG, 3=TPU, 4=ASA, 5=PA (Nylon), 6=PC, 7=Carbon fiber composite, 8=HIPS, 9=PVA, 10=Other
+**materialType values:** 0=PLA, 1=PETG, 2=TPU, 3=ABS, 4=ASA, 5=PC, 6=PCTG, 7=PP, 8=PA, 9=PA11, 10=PA12, 11=PA66, 12=CPE, 13=TPE, 14=HIPS, 15=PHA, 16=PET, 17=PEI, 255=Unknown
 
 ---
 

@@ -674,20 +674,78 @@ curl -X POST http://127.0.0.1:32145/v1/readers/0/card \
 
 ### OpenPrintTag Fields
 
+**Identification**
+
 | Field | Type | Description |
 |-------|------|-------------|
 | `materialName` | string | Material display name (required) |
 | `brandName` | string | Brand/manufacturer name (required) |
 | `materialClass` | int | 0 = FFF (filament), 1 = SLA (resin) |
-| `materialType` | int | Material type (0=PLA, 1=ABS, 2=PETG, etc.) |
-| `nominalWeight` | float | Nominal weight in grams (required) |
+| `materialType` | int | Material type — see values below (required) |
 | `primaryColor` | string | Hex color code (#RRGGBB or #RRGGBBAA) |
+| `gtin` | uint64 | EAN-13 / GTIN product code |
+| `brandSpecificInstanceId` | string | Brand's own spool instance reference |
+| `brandSpecificPackageId` | string | Brand's own package/product reference |
+
+**Weight & Length**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `nominalWeight` | float | Nominal weight in grams (required) |
+| `actualWeight` | float | Actual netto weight measured (g) |
+| `spoolWeight` | float | Empty spool/bobbin weight (g) |
+| `nominalFullLength` | float | Nominal full length (mm) |
+| `actualFullLength` | float | Actual full length measured (mm) |
+
+**Print Parameters**
+
+| Field | Type | Description |
+|-------|------|-------------|
 | `filamentDiameter` | float | Diameter in mm (default: 1.75) |
 | `density` | float | Material density in g/cm³ |
-| `minPrintTemp` | int | Minimum print temperature °C |
-| `maxPrintTemp` | int | Maximum print temperature °C |
+| `minPrintTemp` | int | Minimum nozzle temperature °C |
+| `maxPrintTemp` | int | Maximum nozzle temperature °C |
+| `minBedTemp` | int | Minimum bed temperature °C |
+| `maxBedTemp` | int | Maximum bed temperature °C |
+| `preheatTemp` | int | Preheat temperature °C |
+| `minChamberTemp` | int | Minimum chamber temperature °C |
+| `chamberTemp` | int | Maximum chamber temperature °C |
+
+**Container Dimensions**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `containerOuterDiam` | float | Spool outer diameter (mm) |
+| `containerInnerDiam` | float | Spool inner diameter (mm) |
+| `containerHoleDiam` | float | Spool hub hole diameter (mm) |
+| `containerWidth` | float | Spool width (mm) |
+
+**Timestamps**
+
+| Field | Type | Description |
+|-------|------|-------------|
 | `manufacturedDate` | int | Unix timestamp |
 | `expirationDate` | int | Unix timestamp |
+
+**Read-only (auto-generated on write, returned on read)**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `instanceUuid` | string | UUIDv5 derived from UID + materialUuid |
+| `packageUuid` | string | UUID of the material package |
+| `materialUuid` | string | UUID of the material |
+| `brandUuid` | string | UUID of the brand |
+| `remainingWeight` | float | nominalWeight − consumedWeight (computed) |
+| `filamentLength` | float | Remaining length (mm, computed from AuxSection consumedWeight) |
+
+**AuxSection** (ICode SLIX2 only — written to the tag's auxiliary memory)
+
+| Key | Field | Description |
+|-----|-------|-------------|
+| 0 | `consumedWeight` | Weight consumed so far (g) |
+| 1 | workgroup | OpenPrintTag workgroup identifier |
+
+**materialType values:** 0=PLA, 1=PETG, 2=TPU, 3=ABS, 4=ASA, 5=PC, 6=PCTG, 7=PP, 8=PA, 9=PA11, 10=PA12, 11=PA66, 12=CPE, 13=TPE, 14=HIPS, 15=PHA, 16=PET, 17=PEI, 18=PBT, 19=PVB, 20=PVA, 21=PEKK, 22=PEEK, 255=Unknown
 
 See the [OpenPrintTag specification](https://openprinttag.org) for the complete field reference.
 
