@@ -227,10 +227,19 @@ type Input struct {
 	Density          float32 `json:"density,omitempty"`
 	MinPrintTemp     uint16  `json:"minPrintTemp,omitempty"`
 	MaxPrintTemp     uint16  `json:"maxPrintTemp,omitempty"`
-	ConsumedWeight   float32 `json:"consumedWeight,omitempty"`
-	Workgroup        string  `json:"workgroup,omitempty"`
-	ManufacturedDate uint32  `json:"manufacturedDate,omitempty"`
-	ExpirationDate   uint32  `json:"expirationDate,omitempty"`
+	MinBedTemp       uint16  `json:"minBedTemp,omitempty"`
+	MaxBedTemp       uint16  `json:"maxBedTemp,omitempty"`
+	ConsumedWeight    float32 `json:"consumedWeight,omitempty"`
+	ActualWeight      float32 `json:"actualWeight,omitempty"`      // key 17: actual netto full weight
+	SpoolWeight       float32 `json:"spoolWeight,omitempty"`       // key 18: empty container weight
+	PreheatTemp       uint16  `json:"preheatTemp,omitempty"`       // key 36
+	MinChamberTemp    uint16  `json:"minChamberTemp,omitempty"`    // key 39
+	ChamberTemp       uint16  `json:"chamberTemp,omitempty"`       // key 41
+	NominalFullLength uint32  `json:"nominalFullLength,omitempty"` // key 53: mm
+	ActualFullLength  uint32  `json:"actualFullLength,omitempty"`  // key 54: mm
+	Workgroup         string  `json:"workgroup,omitempty"`
+	ManufacturedDate  uint32  `json:"manufacturedDate,omitempty"`
+	ExpirationDate    uint32  `json:"expirationDate,omitempty"`
 }
 
 // ToResponse converts internal OpenPrintTag to API response

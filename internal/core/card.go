@@ -898,7 +898,8 @@ func WriteDataWithURL(readerName string, data []byte, dataType string, url strin
 	} else if cardInfo.Protocol == "NFC-V" {
 		// ISO 15693 (ICode SLI/SLIX/SLIX2): CC at block 0, NDEF TLV at block 1.
 		// Do NOT pad to card.Size — writing past block 79 causes errors on ICode SLIX2.
-		cc := []byte{0xE1, 0x40, 0x40, 0x00}
+		// E1=NDEF magic, 40=v1.0 read/write, 27=MLEN 39 (40×8=320 bytes), 01=MBREAD
+		cc := []byte{0xE1, 0x40, 0x27, 0x01}
 		if err := writeNTAGPages(card, 0, cc); err != nil {
 			return fmt.Errorf("failed to write NDEF message: %w", err)
 		}
@@ -2241,12 +2242,9 @@ func WriteMultipleRecords(readerName string, records []NDEFRecord) error {
 
 	if isISO15693 {
 		// ISO 15693 (Type 5) tags: CC at block 0, NDEF at block 1
-		// CC format: E1 [version/access] [size/8] [features]
-		// - 0xE1: Magic number
-		// - 0x40: Version 1.0 (4), read/write access (0)
-		// - Size: Available memory / 8 (we'll use 0x40 = 512 bytes, conservative)
-		// - 0x00: No special features
-		cc := []byte{0xE1, 0x40, 0x40, 0x00}
+		// CC format: E1 [version/access] [MLEN] [features]
+		// E1=NDEF magic, 40=v1.0 read/write, 27=MLEN 39 ((39+1)×8=320 bytes for ICode SLIX2), 01=MBREAD
+		cc := []byte{0xE1, 0x40, 0x27, 0x01}
 
 		// Write CC at block 0
 		if err := writeNTAGPages(card, 0, cc); err != nil {
