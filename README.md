@@ -163,6 +163,50 @@ sudo modprobe -r pn533_usb pn533 nfc 2>/dev/null || true
 sudo systemctl restart pcscd
 ```
 
+### Running headless as a Linux system service
+
+Running NFC Agent as a background system service (e.g. on a Raspberry Pi or a
+kiosk with no logged-in desktop session) needs two extra bits of setup beyond the
+desktop case. The `.deb`/`.rpm` packages install a *per-user* service that runs
+inside the desktop session, where these are handled automatically — you only need
+this when running headless under a dedicated service user.
+
+The agent re-scans for readers continuously and self-heals if `pcscd` or the
+reader appears after it starts (pushing a [`readers_changed`](#websocket) event
+to connected clients), so a late `pcscd` no longer leaves you stuck at
+"0 readers" — but `pcscd` still has to actually start and the service user still
+needs permission to talk to it.
+
+**1. Make sure `pcscd` actually starts on boot.** On recent distributions
+(Debian Trixie, current Raspberry Pi OS) `pcscd` is *socket-activated* — it only
+launches when something connects to its socket. With a headless service that can
+race on a cold boot. Enable the service itself so it is always up:
+
+```bash
+sudo systemctl enable --now pcscd.service   # not just pcscd.socket
+```
+
+**2. Grant the service user access to PC/SC.** polkit grants smart-card access to
+*active local sessions* by default (`allow_active`), which a system-service user
+does not have. Install a rule that allows your dedicated service user (here
+`nfcagent`) to use PC/SC:
+
+```javascript
+// /etc/polkit-1/rules.d/49-nfc-agent-pcsc.rules
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.debian.pcsc-lite.access_pcsc" ||
+        action.id == "org.debian.pcsc-lite.access_card") {
+        if (subject.user == "nfcagent") {
+            return polkit.Result.YES;
+        }
+    }
+});
+```
+
+Then restart `pcscd` (`sudo systemctl restart pcscd`). Without this rule a
+headless service typically sees `pcscd` running but reports **0 readers** or gets
+permission errors when accessing a card.
+
 ## Quick Start
 
 1. **Connect** your NFC reader via USB
@@ -263,6 +307,7 @@ Connect to `ws://127.0.0.1:32145/v1/ws` for real-time card events.
 - `card_detected` - Card placed on reader
 - `card_data` - Full raw memory dump (fired after `card_detected` when subscribed with `includeRaw:true`, or response to `dump_card`)
 - `card_removed` - Card removed from reader
+- `readers_changed` - The set of connected readers changed (reader plugged in/removed, or `pcscd` became available after startup). Payload carries the full current reader list; use it to refresh and re-`subscribe` without polling.
 
 See the SDK documentation for detailed API reference: [JavaScript](sdk/javascript/README.md) | [Python](sdk/python/README.md)
 

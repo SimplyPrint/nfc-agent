@@ -11,6 +11,7 @@ import type {
   CardDetectedEvent,
   CardRemovedEvent,
   CardDataEvent,
+  ReadersChangedEvent,
   CardRawDump,
   SubscribeOptions,
   MifareBlockData,
@@ -38,6 +39,7 @@ const DEFAULT_RECONNECT_INTERVAL = 3000;
 type CardDetectedCallback = (event: CardDetectedEvent) => void;
 type CardRemovedCallback = (event: CardRemovedEvent) => void;
 type CardDataCallback = (event: CardDataEvent) => void;
+type ReadersChangedCallback = (event: ReadersChangedEvent) => void;
 type ConnectionCallback = () => void;
 type ErrorCallback = (error: Error) => void;
 
@@ -51,6 +53,7 @@ interface EventListeners {
   card_detected: CardDetectedCallback[];
   card_removed: CardRemovedCallback[];
   card_data: CardDataCallback[];
+  readers_changed: ReadersChangedCallback[];
   connected: ConnectionCallback[];
   disconnected: ConnectionCallback[];
   error: ErrorCallback[];
@@ -78,6 +81,7 @@ export class NFCAgentWebSocket {
     card_detected: [],
     card_removed: [],
     card_data: [],
+    readers_changed: [],
     connected: [],
     disconnected: [],
     error: [],
@@ -251,6 +255,18 @@ export class NFCAgentWebSocket {
       return;
     }
 
+    if (data.type === 'readers_changed') {
+      const payload = data.payload as ReadersChangedEvent;
+      for (const callback of this.listeners.readers_changed) {
+        try {
+          callback(payload);
+        } catch {
+          // Ignore callback errors
+        }
+      }
+      return;
+    }
+
     // Handle request responses
     if (data.id) {
       const pending = this.pendingRequests.get(data.id);
@@ -318,12 +334,13 @@ export class NFCAgentWebSocket {
   on(event: 'card_detected', callback: CardDetectedCallback): this;
   on(event: 'card_removed', callback: CardRemovedCallback): this;
   on(event: 'card_data', callback: CardDataCallback): this;
+  on(event: 'readers_changed', callback: ReadersChangedCallback): this;
   on(event: 'connected', callback: ConnectionCallback): this;
   on(event: 'disconnected', callback: ConnectionCallback): this;
   on(event: 'error', callback: ErrorCallback): this;
   on(
-    event: 'card_detected' | 'card_removed' | 'card_data' | 'connected' | 'disconnected' | 'error',
-    callback: CardDetectedCallback | CardRemovedCallback | CardDataCallback | ConnectionCallback | ErrorCallback
+    event: 'card_detected' | 'card_removed' | 'card_data' | 'readers_changed' | 'connected' | 'disconnected' | 'error',
+    callback: CardDetectedCallback | CardRemovedCallback | CardDataCallback | ReadersChangedCallback | ConnectionCallback | ErrorCallback
   ): this {
     const listeners = this.listeners[event as keyof EventListeners];
     if (listeners) {
@@ -339,12 +356,13 @@ export class NFCAgentWebSocket {
   off(event: 'card_detected', callback: CardDetectedCallback): this;
   off(event: 'card_removed', callback: CardRemovedCallback): this;
   off(event: 'card_data', callback: CardDataCallback): this;
+  off(event: 'readers_changed', callback: ReadersChangedCallback): this;
   off(event: 'connected', callback: ConnectionCallback): this;
   off(event: 'disconnected', callback: ConnectionCallback): this;
   off(event: 'error', callback: ErrorCallback): this;
   off(
-    event: 'card_detected' | 'card_removed' | 'card_data' | 'connected' | 'disconnected' | 'error',
-    callback: CardDetectedCallback | CardRemovedCallback | CardDataCallback | ConnectionCallback | ErrorCallback
+    event: 'card_detected' | 'card_removed' | 'card_data' | 'readers_changed' | 'connected' | 'disconnected' | 'error',
+    callback: CardDetectedCallback | CardRemovedCallback | CardDataCallback | ReadersChangedCallback | ConnectionCallback | ErrorCallback
   ): this {
     const listeners = this.listeners[event as keyof EventListeners];
     if (listeners) {

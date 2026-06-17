@@ -38,6 +38,7 @@ export type {
   HealthInfo,
   CardDetectedEvent,
   CardRemovedEvent,
+  ReadersChangedEvent,
   // MIFARE Classic types
   MifareBlockData,
   MifareReadOptions,

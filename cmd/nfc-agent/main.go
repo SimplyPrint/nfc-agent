@@ -163,6 +163,10 @@ func run(cfg *config.Config, headless bool) {
 	// Add WebSocket endpoint
 	mux.HandleFunc("/v1/ws", api.InitWebSocket())
 
+	// Watch for readers arriving/removed after startup (e.g. socket-activated
+	// pcscd or a USB reader plugged in late) and push readers_changed to clients.
+	api.StartReaderMonitor(nil)
+
 	addr := cfg.Address()
 
 	// Load or generate TLS certificates

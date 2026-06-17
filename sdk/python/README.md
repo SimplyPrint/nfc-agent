@@ -199,6 +199,12 @@ def handle_data(event):
 def handle_removed(event):
     print(f"Removed from reader {event.reader}")
 
+@ws.on_readers_changed
+def handle_readers(event):
+    # Fired when readers are plugged in/removed, or pcscd becomes available
+    # after startup. event.readers is the full current reader list.
+    print(f"Readers now connected: {event.readers}")
+
 @ws.on_connected
 def handle_connected():
     print("Connected")

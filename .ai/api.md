@@ -416,6 +416,38 @@ URL: `ws://127.0.0.1:32145/v1/ws`
 
 ---
 
+### Reader Hotplug (`readers_changed`)
+
+The agent watches for readers being plugged in or removed (via the PC/SC PnP
+notification mechanism) and pushes a `readers_changed` event to **all** connected
+clients whenever the set of readers changes. This includes the case where the
+PC/SC daemon (`pcscd`) becomes available *after* the agent started — common with
+socket-activated `pcscd` on recent Linux (Debian Trixie, Raspberry Pi OS) or when
+a USB reader is enumerated late on a cold boot.
+
+The payload carries the full current reader list, so clients can refresh their UI
+and re-`subscribe` without polling `list_readers` themselves. The event has no
+`id` (it is unsolicited); clients that don't handle it can safely ignore it.
+
+```json
+// Sent automatically — no request needed. Fired on the first successful
+// enumeration and on every subsequent arrival/removal.
+← {"type":"readers_changed","payload":{
+    "readers":[
+      {"id":"reader-0","name":"ACS ACR1252U PICC Reader","type":"picc"}
+    ]
+  }}
+
+// When the last reader is removed (or pcscd goes away), readers is empty:
+← {"type":"readers_changed","payload":{"readers":[]}}
+```
+
+> **Note:** Reader indices used by `subscribe`, `read_card`, etc. are positions
+> in this list, so when `readers_changed` fires, re-read the list before reusing
+> an index.
+
+---
+
 ### MIFARE Classic Block Operations (WebSocket)
 
 ```json

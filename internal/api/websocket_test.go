@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/SimplyPrint/nfc-agent/internal/core"
 	"github.com/gorilla/websocket"
 )
 
@@ -117,6 +118,51 @@ func TestWSHub_Broadcast(t *testing.T) {
 		default:
 			t.Errorf("client %d did not receive message", i)
 		}
+	}
+}
+
+func TestWSHub_BroadcastReadersChanged(t *testing.T) {
+	hub := NewWSHub()
+	go hub.Run()
+
+	client := &WSClient{
+		send:        make(chan []byte, 256),
+		hub:         hub,
+		subscribed:  make(map[string]bool),
+		pollTickers: make(map[string]*time.Ticker),
+		lastUIDs:    make(map[string]string),
+	}
+	hub.register <- client
+	time.Sleep(10 * time.Millisecond)
+
+	hub.broadcastReadersChanged([]core.Reader{
+		{ID: "reader-0", Name: "ACR122U PICC", Type: "picc"},
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	select {
+	case raw := <-client.send:
+		var msg struct {
+			Type    string `json:"type"`
+			ID      string `json:"id"`
+			Payload struct {
+				Readers []core.Reader `json:"readers"`
+			} `json:"payload"`
+		}
+		if err := json.Unmarshal(raw, &msg); err != nil {
+			t.Fatalf("failed to unmarshal broadcast: %v", err)
+		}
+		if msg.Type != "readers_changed" {
+			t.Errorf("expected type readers_changed, got %q", msg.Type)
+		}
+		if msg.ID != "" {
+			t.Errorf("event must be unsolicited (no id), got id %q", msg.ID)
+		}
+		if len(msg.Payload.Readers) != 1 || msg.Payload.Readers[0].Name != "ACR122U PICC" {
+			t.Errorf("unexpected readers payload: %+v", msg.Payload.Readers)
+		}
+	default:
+		t.Error("client did not receive readers_changed broadcast")
 	}
 }
 
@@ -236,10 +282,10 @@ func TestWSClient_sendError(t *testing.T) {
 
 func TestWSClient_handleMessage(t *testing.T) {
 	tests := []struct {
-		name         string
-		msgType      string
-		payload      string
-		expectError  bool
+		name        string
+		msgType     string
+		payload     string
+		expectError bool
 	}{
 		{"list_readers", "list_readers", "", false},
 		{"version", "version", "", false},

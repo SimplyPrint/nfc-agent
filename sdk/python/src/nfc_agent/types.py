@@ -132,6 +132,20 @@ class CardRemovedEvent:
 
 
 @dataclass
+class ReadersChangedEvent:
+    """Readers changed event payload (server push).
+
+    Fired when the set of connected readers changes -- e.g. a reader is plugged
+    in or removed, or the PC/SC daemon becomes available after the agent
+    started. Use it to refresh your reader list (and re-subscribe) without
+    polling :meth:`NFCAgentWebSocket.list_readers`.
+    """
+
+    readers: list[Reader]
+    """The current list of connected readers."""
+
+
+@dataclass
 class NDEFRecord:
     """Single NDEF record for write_records."""
 

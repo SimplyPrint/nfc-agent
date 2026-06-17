@@ -102,6 +102,35 @@ func (h *WSHub) Run() {
 // Global hub instance
 var wsHub *WSHub
 
+// broadcastReadersChanged pushes a readers_changed event carrying the current
+// reader list to every connected client. Clients can use this to refresh their
+// reader list (and re-subscribe) when a reader is plugged in or removed after
+// they connected — without polling list_readers themselves.
+func (h *WSHub) broadcastReadersChanged(readers []core.Reader) {
+	payload, err := json.Marshal(map[string]any{"readers": readers})
+	if err != nil {
+		return
+	}
+	data, err := json.Marshal(WSMessage{Type: "readers_changed", Payload: payload})
+	if err != nil {
+		return
+	}
+	h.broadcast <- data
+}
+
+// StartReaderMonitor launches the background PC/SC reader monitor that pushes
+// readers_changed events when readers arrive or are removed. It must be called
+// after InitWebSocket. Pass nil to run for the lifetime of the process.
+func StartReaderMonitor(stop <-chan struct{}) {
+	hub := wsHub
+	if hub == nil {
+		return
+	}
+	go core.MonitorReaders(func(readers []core.Reader) {
+		hub.broadcastReadersChanged(readers)
+	}, stop)
+}
+
 // InitWebSocket initializes the WebSocket hub and returns the handler
 func InitWebSocket() http.HandlerFunc {
 	wsHub = NewWSHub()

@@ -171,6 +171,23 @@ ws.on('card_removed', (event) => {
 await ws.unsubscribe(0);
 ```
 
+### Reader Hotplug Events
+
+The agent pushes a `readers_changed` event whenever the set of connected readers
+changes — a reader plugged in or removed, or `pcscd` becoming available after the
+agent started (common on socket-activated `pcscd` / cold boots). The payload
+carries the full current reader list, so you can refresh your UI and re-subscribe
+without polling `getReaders()`:
+
+```typescript
+ws.on('readers_changed', (event) => {
+  console.log('Readers now connected:', event.readers);
+  if (event.readers.length > 0) {
+    ws.subscribe(0); // re-subscribe once a reader is available
+  }
+});
+```
+
 ### Advanced Operations
 
 ```typescript
@@ -436,6 +453,7 @@ poller.start();
 | `card_detected` | `(event: CardDetectedEvent) => void` | Card placed on reader |
 | `card_data` | `(event: CardDataEvent) => void` | Full raw memory dump (fired after `card_detected` when subscribed with `includeRaw:true`, or response to `dump_card`) |
 | `card_removed` | `(event: CardRemovedEvent) => void` | Card removed |
+| `readers_changed` | `(event: ReadersChangedEvent) => void` | The set of connected readers changed (reader plugged in/removed, or `pcscd` became available after startup). `event.readers` is the full current list. |
 | `connected` | `() => void` | Connected to server |
 | `disconnected` | `() => void` | Disconnected |
 | `error` | `(error: Error) => void` | Connection error |

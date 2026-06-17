@@ -28,6 +28,7 @@ from .types import (
     MifareKeyType,
     NDEFRecord,
     Reader,
+    ReadersChangedEvent,
     UltralightBatchWriteResult,
     UltralightPageData,
     UltralightPageWriteResult,
@@ -43,6 +44,7 @@ DEFAULT_RECONNECT_INTERVAL = 3.0
 CardDetectedCallback = Callable[[CardDetectedEvent], None]
 CardRemovedCallback = Callable[[CardRemovedEvent], None]
 CardDataCallback = Callable[[CardDataEvent], None]
+ReadersChangedCallback = Callable[[ReadersChangedEvent], None]
 ConnectionCallback = Callable[[], None]
 ErrorCallback = Callable[[Exception], None]
 
@@ -120,6 +122,7 @@ class NFCWebSocket:
         self._on_card_detected: list[CardDetectedCallback] = []
         self._on_card_removed: list[CardRemovedCallback] = []
         self._on_card_data: list[CardDataCallback] = []
+        self._on_readers_changed: list[ReadersChangedCallback] = []
         self._on_connected: list[ConnectionCallback] = []
         self._on_disconnected: list[ConnectionCallback] = []
         self._on_error: list[ErrorCallback] = []
@@ -220,6 +223,25 @@ class NFCWebSocket:
                 print(event.pages)
         """
         self._on_card_data.append(callback)
+        return callback
+
+    def on_readers_changed(
+        self, callback: ReadersChangedCallback
+    ) -> ReadersChangedCallback:
+        """
+        Register a readers changed event handler.
+
+        Fires when the set of connected readers changes -- e.g. a reader is
+        plugged in or removed, or the PC/SC daemon becomes available after the
+        agent started. Use it to refresh your reader list (and re-subscribe)
+        without polling list_readers().
+
+        Can be used as a decorator:
+            @ws.on_readers_changed
+            def handle_readers(event):
+                print(event.readers)
+        """
+        self._on_readers_changed.append(callback)
         return callback
 
     def on_connected(self, callback: ConnectionCallback) -> ConnectionCallback:
@@ -761,6 +783,22 @@ class NFCWebSocket:
             for card_data_cb in self._on_card_data:
                 with contextlib.suppress(Exception):
                     card_data_cb(card_data_event)
+            return
+
+        if msg_type == "readers_changed":
+            readers_payload = data.get("payload", {})
+            readers = [
+                Reader(
+                    id=r.get("id", ""),
+                    name=r.get("name", ""),
+                    type=r.get("type", ""),
+                )
+                for r in readers_payload.get("readers", [])
+            ]
+            readers_event = ReadersChangedEvent(readers=readers)
+            for readers_cb in self._on_readers_changed:
+                with contextlib.suppress(Exception):
+                    readers_cb(readers_event)
             return
 
         # Handle responses

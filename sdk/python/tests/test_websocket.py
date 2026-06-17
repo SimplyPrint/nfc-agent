@@ -108,6 +108,34 @@ class TestNFCWebSocket:
         assert events_received[0].reader == 0
 
     @pytest.mark.asyncio
+    async def test_handle_readers_changed_event(self):
+        """Test handling readers_changed event."""
+        ws = NFCWebSocket()
+        events_received = []
+
+        @ws.on_readers_changed
+        def handle_readers(event):
+            events_received.append(event)
+
+        message = json.dumps(
+            {
+                "type": "readers_changed",
+                "payload": {
+                    "readers": [
+                        {"id": "reader-0", "name": "ACR122U PICC", "type": "picc"}
+                    ]
+                },
+            }
+        )
+
+        await ws._handle_message(message)
+
+        assert len(events_received) == 1
+        assert len(events_received[0].readers) == 1
+        assert events_received[0].readers[0].name == "ACR122U PICC"
+        assert events_received[0].readers[0].type == "picc"
+
+    @pytest.mark.asyncio
     async def test_handle_response(self):
         """Test handling response to a request."""
         ws = NFCWebSocket()

@@ -148,7 +148,7 @@ export type WSMessageType =
 /**
  * WebSocket event types (server push)
  */
-export type WSEventType = 'card_detected' | 'card_removed' | 'card_data';
+export type WSEventType = 'card_detected' | 'card_removed' | 'card_data' | 'readers_changed';
 
 /**
  * Base WebSocket message structure
@@ -299,6 +299,18 @@ export interface CardDetectedEvent {
  */
 export interface CardRemovedEvent {
   reader: number;
+}
+
+/**
+ * Readers changed event payload (server push).
+ *
+ * Fired when the set of connected readers changes — e.g. a reader is plugged in
+ * or removed, or the PC/SC daemon becomes available after the agent started.
+ * Use it to refresh your reader list (and re-subscribe) without polling
+ * {@link NFCAgentWebSocket.getReaders}.
+ */
+export interface ReadersChangedEvent {
+  readers: Reader[];
 }
 
 // ============================================================================
