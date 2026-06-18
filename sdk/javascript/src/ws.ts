@@ -28,8 +28,11 @@ import type {
   DeriveUIDKeyOptions,
   AESEncryptWriteOptions,
   WriteMifareSectorTrailerOptions,
+  DesfireSessionInfo,
+  DesfireResponse,
+  DesfireBatchResponse,
 } from './types.js';
-import { ConnectionError, CardError, NFCAgentError } from './errors.js';
+import { ConnectionError, CardError, DesfireError, NFCAgentError } from './errors.js';
 
 const DEFAULT_WS_URL = 'ws://127.0.0.1:32145/v1/ws';
 const DEFAULT_WSS_URL = 'wss://127.0.0.1:32145/v1/ws';
@@ -781,6 +784,93 @@ export class NFCAgentWebSocket {
         throw new CardError(error.message);
       }
       throw error;
+    }
+  }
+
+  // ============================================================================
+  // DESFire Transparent Session
+  //
+  // The agent does no cryptography and holds no keys — it transparently ferries
+  // raw APDUs to and from the card. The caller (typically a backend) drives the
+  // full DESFire authentication handshake itself.
+  // ============================================================================
+
+  /**
+   * Translate an error from a desfire_* call into a {@link DesfireError},
+   * parsing a DESFire status word (e.g. "status 0x91AF") into statusCode.
+   */
+  private toDesfireError(error: unknown): Error {
+    if (error instanceof NFCAgentError) {
+      const match = error.message.match(/status 0x([0-9A-Fa-f]{1,4})/);
+      const statusCode = match ? parseInt(match[1], 16) : undefined;
+      return new DesfireError(error.message, statusCode);
+    }
+    return error instanceof Error ? error : new DesfireError(String(error));
+  }
+
+  /**
+   * Open a transparent DESFire session on a reader.
+   *
+   * The agent performs no cryptography and holds no keys; it only opens a raw
+   * APDU channel to the card. The caller drives the DESFire handshake via
+   * {@link NFCAgentWebSocket.desfireTransmit}.
+   * @param readerIndex - Index of the reader (0-based)
+   * @returns Session info (reader name, card UID, ATR)
+   */
+  async openDesfireSession(readerIndex: number): Promise<DesfireSessionInfo> {
+    try {
+      return await this.request<DesfireSessionInfo>('desfire_session_open', { readerIndex });
+    } catch (error) {
+      throw this.toDesfireError(error);
+    }
+  }
+
+  /**
+   * Transmit a single raw APDU within an open DESFire session.
+   *
+   * The agent does no crypto and holds no keys — it forwards the APDU verbatim
+   * and returns the card's full response; the caller drives the handshake.
+   * @param readerIndex - Index of the reader (0-based)
+   * @param apdu - APDU to transmit as a hex string
+   * @returns Full card response (hex, including status word) plus decoded SW1/SW2
+   */
+  async desfireTransmit(readerIndex: number, apdu: string): Promise<DesfireResponse> {
+    try {
+      return await this.request<DesfireResponse>('desfire_transmit', { readerIndex, apdu });
+    } catch (error) {
+      throw this.toDesfireError(error);
+    }
+  }
+
+  /**
+   * Transmit multiple raw APDUs in order within an open DESFire session.
+   *
+   * The agent does no crypto and holds no keys — it forwards each APDU verbatim;
+   * the caller drives the handshake.
+   * @param readerIndex - Index of the reader (0-based)
+   * @param apdus - APDUs to transmit, in order, as hex strings
+   * @returns Responses in the same order as the submitted APDUs
+   */
+  async desfireTransmitBatch(readerIndex: number, apdus: string[]): Promise<DesfireBatchResponse> {
+    try {
+      return await this.request<DesfireBatchResponse>('desfire_transmit_batch', { readerIndex, apdus });
+    } catch (error) {
+      throw this.toDesfireError(error);
+    }
+  }
+
+  /**
+   * Close the transparent DESFire session on a reader.
+   *
+   * The agent holds no keys and performs no crypto; this simply releases the raw
+   * APDU channel opened by {@link NFCAgentWebSocket.openDesfireSession}.
+   * @param readerIndex - Index of the reader (0-based)
+   */
+  async closeDesfireSession(readerIndex: number): Promise<void> {
+    try {
+      await this.request('desfire_session_close', { readerIndex });
+    } catch (error) {
+      throw this.toDesfireError(error);
     }
   }
 

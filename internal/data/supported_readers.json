@@ -8,11 +8,13 @@
       "capabilities": {
         "read": true,
         "write": true,
-        "ndef": true
+        "ndef": true,
+        "desfire": true
       },
       "limitations": [
         "May require driver installation on some systems",
-        "Beeps by default (can be disabled)"
+        "Beeps by default (can be disabled)",
+        "Firmware not upgradeable; some units have AES-encrypted-write quirks"
       ]
     },
     {
@@ -24,6 +26,7 @@
         "read": true,
         "write": true,
         "ndef": true,
+        "desfire": true,
         "display": true
       },
       "limitations": []
@@ -37,6 +40,7 @@
         "read": true,
         "write": true,
         "ndef": true,
+        "desfire": true,
         "bluetooth": true
       },
       "limitations": [
@@ -51,7 +55,8 @@
       "capabilities": {
         "read": true,
         "write": true,
-        "ndef": true
+        "ndef": true,
+        "desfire": true
       },
       "limitations": []
     },
@@ -75,7 +80,8 @@
       "capabilities": {
         "read": true,
         "write": true,
-        "ndef": true
+        "ndef": true,
+        "desfire": true
       },
       "limitations": []
     },
@@ -87,7 +93,8 @@
       "capabilities": {
         "read": true,
         "write": true,
-        "ndef": true
+        "ndef": true,
+        "desfire": true
       },
       "limitations": []
     }

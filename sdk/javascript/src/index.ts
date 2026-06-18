@@ -13,6 +13,7 @@ export {
   ConnectionError,
   ReaderError,
   CardError,
+  DesfireError,
   APIError,
 } from './errors.js';
 
@@ -65,6 +66,13 @@ export type {
   CardRawDump,
   CardDataEvent,
   SubscribeOptions,
+  // DESFire transparent session types
+  DesfireSessionInfo,
+  DesfireResponse,
+  DesfireBatchResponse,
+  DesfireSessionPayload,
+  DesfireTransmitPayload,
+  DesfireTransmitBatchPayload,
 } from './types.js';
 
 // Convenience aliases for CDN/browser usage

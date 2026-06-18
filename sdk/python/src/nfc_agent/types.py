@@ -275,6 +275,9 @@ class SupportedReaderCapabilities:
     write: bool
     ndef: bool
 
+    desfire: bool = False
+    """Whether the reader supports transparent DESFire APDU sessions."""
+
 
 @dataclass
 class SupportedReader:
@@ -314,6 +317,41 @@ class CardRawDump:
 
     failed_blocks: Optional[list[int]] = None
     """Block numbers that could not be read due to unknown keys. Present for MIFARE Classic cards."""
+
+
+@dataclass
+class DesfireSessionInfo:
+    """Result of opening a transparent DESFire session.
+
+    The agent performs no DESFire crypto and holds no keys -- it only holds the
+    card connection open so the caller (backend) can drive the handshake.
+    """
+
+    reader_name: str
+    """Reader name the session was opened on."""
+
+    uid: str
+    """Card UID (hex string)."""
+
+    atr: str
+    """Answer To Reset (hex string)."""
+
+
+@dataclass
+class DesfireResponse:
+    """A single raw DESFire APDU response.
+
+    The agent does not interpret the bytes -- the caller decodes them.
+    """
+
+    response: str
+    """Full raw response as a hex string, including the trailing status word."""
+
+    sw1: Optional[int] = None
+    """First status byte (SW1), if the response was long enough to contain one."""
+
+    sw2: Optional[int] = None
+    """Second status byte (SW2), if the response was long enough to contain one."""
 
 
 @dataclass

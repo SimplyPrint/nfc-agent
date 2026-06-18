@@ -28,6 +28,7 @@ from .exceptions import (
     APIError,
     CardError,
     ConnectionError,
+    DesfireError,
     NFCAgentError,
     ReaderError,
     TimeoutError,
@@ -41,6 +42,8 @@ from .types import (
     CardRawDump,
     CardRemovedEvent,
     DerivedKeyData,
+    DesfireResponse,
+    DesfireSessionInfo,
     HealthInfo,
     MifareBatchWriteResult,
     MifareBlockData,
@@ -61,7 +64,7 @@ from .types import (
 )
 from .websocket import NFCWebSocket
 
-__version__ = "0.5.1"
+__version__ = "0.6.0"
 __all__ = [
     # Clients
     "NFCClient",
@@ -72,6 +75,7 @@ __all__ = [
     "ConnectionError",
     "ReaderError",
     "CardError",
+    "DesfireError",
     "APIError",
     "TimeoutError",
     # Types
@@ -96,6 +100,8 @@ __all__ = [
     "UltralightPageWriteResult",
     "UltralightBatchWriteResult",
     "DerivedKeyData",
+    "DesfireSessionInfo",
+    "DesfireResponse",
     "SupportedReader",
     "SupportedReaderCapabilities",
     "SupportedReadersResponse",

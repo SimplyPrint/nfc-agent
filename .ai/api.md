@@ -515,6 +515,74 @@ and re-`subscribe` without polling `list_readers` themselves. The event has no
 
 ---
 
+### DESFire — Transparent Session (WebSocket only)
+
+A transparent DESFire APDU session over the existing WebSocket transport. **There
+are no REST endpoints for this.** The agent holds the PC/SC connection to one card
+open across multiple messages so an external party (typically the SimplyPrint
+backend, which keeps the DESFire keys in its HSM) can drive an interactive DESFire
+EV2/EV3 mutual-authentication handshake (`AuthenticateEV2First` is a 3-pass
+challenge/response that can't be pre-computed) and the secure-messaging commands
+that follow, turn by turn.
+
+**The agent performs no DESFire cryptography and holds no keys.** It forwards
+caller-supplied APDU bytes verbatim and returns the card's raw response (including
+the status word). All session secrets — transaction id, command counter, session
+keys — live with whoever drives the handshake; never in the agent, never on disk,
+never in logs. This is why it's a raw relay rather than typed DESFire verbs: it
+keeps the agent aligned with the project's "expose raw access, don't bake in
+app/brand logic" philosophy and avoids hand-rolled secure messaging.
+
+Send native DESFire APDUs (`CLA=0x90`) over this pipe. Real DESFire commands are
+supplied by the backend. Recommended readers are the ACR1252U / ACR1552U class;
+the ACR122U works but its firmware is not upgradeable and has documented
+AES-encrypted-write quirks.
+
+**Session lifecycle:**
+- A session is bound to the WebSocket connection and is automatically dropped on
+  disconnect.
+- Don't poll/`subscribe` a reader while a DESFire session is open on it
+  (`unsubscribe` first) to avoid contending for the card.
+- Each reader's `capabilities` in `supported_readers` carries an advisory
+  `desfire` boolean. It's a hint only — the session still fails clean with a typed
+  error if a reader/card can't complete the exchange.
+
+```json
+// Open a session (holds the PC/SC connection open across messages)
+→ {"type":"desfire_session_open","id":"ds1","payload":{"readerIndex":0}}
+← {"type":"desfire_session_opened","id":"ds1","payload":{
+    "readerIndex":0,"readerName":"ACS ACR1252U PICC Reader",
+    "uid":"04a2b3c4d5e607","atr":"3b8f8001..."
+  }}
+
+// Transmit one APDU — full response incl. status word is returned verbatim.
+// Authentication MUST use single desfire_transmit calls because it's interactive
+// (each pass depends on the card's previous response).
+→ {"type":"desfire_transmit","id":"dt1","payload":{"readerIndex":0,"apdu":"ffca000000"}}
+← {"type":"desfire_response","id":"dt1","payload":{"response":"04a2b3c4d5e6079000","sw1":144,"sw2":0}}
+
+// Transmit a batch of APDUs in order (for non-interactive stretches only)
+→ {"type":"desfire_transmit_batch","id":"db1","payload":{
+    "readerIndex":0,"apdus":["ffca000000","ffca000000"]
+  }}
+← {"type":"desfire_responses","id":"db1","payload":{"responses":[
+    {"response":"04a2b3c4d5e6079000","sw1":144,"sw2":0},
+    {"response":"04a2b3c4d5e6079000","sw1":144,"sw2":0}
+  ]}}
+
+// Close the session
+→ {"type":"desfire_session_close","id":"ds2","payload":{"readerIndex":0}}
+← {"type":"desfire_session_closed","id":"ds2","payload":{"readerIndex":0,"readerName":"ACS ACR1252U PICC Reader"}}
+```
+
+Errors are returned as `{"type":"error","id":"...","error":"<string>"}` (e.g.
+transmitting after the session is closed). A card-agnostic smoke test lives at
+`scripts/test_desfire_session.py` — it opens a session, transmits the get-UID
+pseudo-APDU (`ffca000000`, answered by any ISO 14443-A card), batches it, then
+closes, proving the pipe end-to-end without needing a DESFire card on the bench.
+
+---
+
 ## OpenPrintTag Fields Reference
 
 When writing with `dataType:"openprinttag"`, the `data` field is a JSON object:

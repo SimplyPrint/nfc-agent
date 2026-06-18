@@ -336,6 +336,37 @@ await ws.writeMifareSectorTrailer(0, 7, {
 - Sector trailers are at blocks 3, 7, 11, 15, etc. (for 1K cards)
 - `FF0780` is the standard "transport" access bits configuration
 
+### DESFire Transparent Session
+
+For DESFire EV2/EV3 cards, the SDK exposes a **transparent APDU session** (WebSocket only — there is no REST equivalent). The agent holds the card connection open across messages so an external party — typically the SimplyPrint backend, which keeps the DESFire keys in its HSM — can drive an interactive `AuthenticateEV2First` handshake (a 3-pass challenge/response that can't be pre-computed) and the secure-messaging commands that follow.
+
+**The agent performs no DESFire cryptography and holds no keys.** Your code sends raw APDU bytes and gets the card's raw response (including the status word) back; all session secrets stay on your side. Send native DESFire APDUs (`CLA=0x90`) — the real commands come from the backend. Recommended readers are the ACR1252U / ACR1552U class.
+
+```typescript
+// Open the session — agent keeps the card connection open across calls
+const session = await ws.openDesfireSession(0);
+console.log('UID:', session.uid, 'ATR:', session.atr);
+
+// Transmit one APDU. Use single transmits for the interactive auth handshake.
+// (Here: the get-UID pseudo-APDU, answered by any ISO 14443-A card.)
+const resp = await ws.desfireTransmit(0, 'ffca000000');
+console.log(resp.response);          // full reply incl. status word, e.g. "04a2b3c4d5e6079000"
+console.log(resp.sw1, resp.sw2);     // 0x90, 0x00 on success
+
+// Batch transmit for non-interactive stretches
+const batch = await ws.desfireTransmitBatch(0, ['ffca000000', 'ffca000000']);
+batch.responses.forEach((r) => console.log(r.response, r.sw1, r.sw2));
+
+// Close when done (sessions are also dropped automatically on disconnect)
+await ws.closeDesfireSession(0);
+```
+
+**Notes:**
+- `apdu` and `response` are hex strings; `response` includes the trailing status word.
+- Don't `subscribe` a reader while a DESFire session is open on it — `unsubscribe` first to avoid contending for the card.
+- Failures throw `DesfireError` (extends `CardError`), with an optional `statusCode`.
+- See `scripts/test_desfire_session.py` for a card-agnostic smoke test.
+
 ---
 
 ## REST API
@@ -445,6 +476,10 @@ poller.start();
 | `deriveUIDKeyAES(reader, options)` | Derive 6-byte key from UID via AES |
 | `aesEncryptAndWriteBlock(reader, block, options)` | AES encrypt + write block |
 | `writeMifareSectorTrailer(reader, block, options)` | Write sector trailer with keys and access bits |
+| `openDesfireSession(reader)` | Open a transparent DESFire APDU session (holds the card connection open) |
+| `desfireTransmit(reader, apdu)` | Transmit one APDU (hex), returns `{response, sw1, sw2}` |
+| `desfireTransmitBatch(reader, apdus)` | Transmit multiple APDUs in order, returns `{responses: [...]}` |
+| `closeDesfireSession(reader)` | Close the DESFire session |
 
 #### WebSocket Events
 
@@ -604,6 +639,24 @@ interface WriteMifareSectorTrailerOptions {
   authKey: string;     // 12 hex chars = 6 bytes
   authKeyType?: MifareKeyType;
 }
+
+// DESFire transparent session types
+interface DesfireSession {
+  readerIndex: number;
+  readerName: string;
+  uid: string;   // hex
+  atr: string;   // hex
+}
+
+interface DesfireResponse {
+  response: string;  // hex, full card reply including status word
+  sw1: number;
+  sw2: number;
+}
+
+interface DesfireBatchResponse {
+  responses: DesfireResponse[];
+}
 ```
 
 ---
@@ -614,7 +667,8 @@ interface WriteMifareSectorTrailerOptions {
 import {
   NFCAgentWebSocket,
   ConnectionError,
-  CardError
+  CardError,
+  DesfireError
 } from '@simplyprint/nfc-agent';
 
 const ws = new NFCAgentWebSocket();
@@ -625,11 +679,15 @@ try {
 } catch (error) {
   if (error instanceof ConnectionError) {
     console.error('Agent not running:', error.message);
+  } else if (error instanceof DesfireError) {
+    console.error('DESFire session error:', error.message, error.statusCode);
   } else if (error instanceof CardError) {
     console.error('Card error:', error.message);
   }
 }
 ```
+
+`DesfireError` extends `CardError`, so a `CardError` handler also catches it unless you check `DesfireError` first. It carries an optional `statusCode`.
 
 ## License
 

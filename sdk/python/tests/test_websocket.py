@@ -5,8 +5,30 @@ import json
 
 import pytest
 
-from nfc_agent import ConnectionError, NFCWebSocket
-from nfc_agent.types import CardDetectedEvent
+from nfc_agent import ConnectionError, DesfireError, NFCWebSocket
+from nfc_agent.types import CardDetectedEvent, DesfireResponse, DesfireSessionInfo
+
+
+class _FakeWS:
+    """Minimal stand-in for a websockets ClientConnection.
+
+    Captures sent frames and lets a test feed a reply back through the client's
+    own _handle_message so request/response correlation runs end to end.
+    """
+
+    def __init__(self, client: NFCWebSocket):
+        self._client = client
+        self.sent: list[dict] = []
+        self.close_code = None
+        # Optional canned reply builder: (request dict) -> response dict
+        self.reply = None
+
+    async def send(self, message: str) -> None:
+        request = json.loads(message)
+        self.sent.append(request)
+        if self.reply is not None:
+            response = self.reply(request)
+            await self._client._handle_message(json.dumps(response))
 
 
 class TestNFCWebSocket:
@@ -212,3 +234,132 @@ class TestNFCWebSocket:
         # Should not raise
         await ws._handle_message("not valid json")
         await ws._handle_message("{incomplete")
+
+    # =========================================================================
+    # DESFire Transparent Session
+    # =========================================================================
+
+    @pytest.mark.asyncio
+    async def test_desfire_session_lifecycle(self):
+        """Test open/transmit/close send the right messages and parse replies."""
+        ws = NFCWebSocket()
+        fake = _FakeWS(ws)
+        ws._ws = fake
+
+        replies = {
+            "desfire_session_open": lambda req: {
+                "type": "desfire_session_opened",
+                "id": req["id"],
+                "payload": {
+                    "readerIndex": req["payload"]["readerIndex"],
+                    "readerName": "ACR122U PICC",
+                    "uid": "04AABBCCDD",
+                    "atr": "3B8180018080",
+                },
+            },
+            "desfire_transmit": lambda req: {
+                "type": "desfire_response",
+                "id": req["id"],
+                "payload": {"response": "0102910091AF", "sw1": 145, "sw2": 175},
+            },
+            "desfire_session_close": lambda req: {
+                "type": "desfire_session_closed",
+                "id": req["id"],
+                "payload": {
+                    "readerIndex": req["payload"]["readerIndex"],
+                    "readerName": "ACR122U PICC",
+                },
+            },
+        }
+        fake.reply = lambda req: replies[req["type"]](req)
+
+        # open
+        info = await ws.open_desfire_session(0)
+        assert isinstance(info, DesfireSessionInfo)
+        assert info.reader_name == "ACR122U PICC"
+        assert info.uid == "04AABBCCDD"
+        assert info.atr == "3B8180018080"
+        assert fake.sent[0]["type"] == "desfire_session_open"
+        assert fake.sent[0]["payload"] == {"readerIndex": 0}
+
+        # transmit
+        resp = await ws.desfire_transmit(0, apdu="9070000000")
+        assert isinstance(resp, DesfireResponse)
+        assert resp.response == "0102910091AF"
+        assert resp.sw1 == 145
+        assert resp.sw2 == 175
+        assert fake.sent[1]["type"] == "desfire_transmit"
+        assert fake.sent[1]["payload"] == {"readerIndex": 0, "apdu": "9070000000"}
+
+        # close
+        result = await ws.close_desfire_session(0)
+        assert result is None
+        assert fake.sent[2]["type"] == "desfire_session_close"
+        assert fake.sent[2]["payload"] == {"readerIndex": 0}
+
+    @pytest.mark.asyncio
+    async def test_desfire_transmit_batch(self):
+        """Test batch transmit sends apdus list and parses responses list."""
+        ws = NFCWebSocket()
+        fake = _FakeWS(ws)
+        ws._ws = fake
+
+        fake.reply = lambda req: {
+            "type": "desfire_responses",
+            "id": req["id"],
+            "payload": {
+                "responses": [
+                    {"response": "9100", "sw1": 145, "sw2": 0},
+                    {"response": "AF", "sw1": None, "sw2": None},
+                ]
+            },
+        }
+
+        responses = await ws.desfire_transmit_batch(0, apdus=["9070000000", "90AF000000"])
+        assert fake.sent[0]["type"] == "desfire_transmit_batch"
+        assert fake.sent[0]["payload"] == {
+            "readerIndex": 0,
+            "apdus": ["9070000000", "90AF000000"],
+        }
+        assert len(responses) == 2
+        assert responses[0].response == "9100"
+        assert responses[0].sw1 == 145
+        assert responses[1].response == "AF"
+        assert responses[1].sw1 is None
+
+    @pytest.mark.asyncio
+    async def test_desfire_error_parses_status_code(self):
+        """Test a desfire error reply raises DesfireError with parsed status."""
+        ws = NFCWebSocket()
+        fake = _FakeWS(ws)
+        ws._ws = fake
+
+        fake.reply = lambda req: {
+            "type": "error",
+            "id": req["id"],
+            "error": "transmit failed: status 0xAE (authentication error)",
+        }
+
+        with pytest.raises(DesfireError) as exc_info:
+            await ws.desfire_transmit(0, apdu="9070000000")
+
+        assert exc_info.value.status_code == 0xAE
+        assert "0xAE" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_desfire_error_without_status_code(self):
+        """Test a desfire error without a status word leaves status_code None."""
+        ws = NFCWebSocket()
+        fake = _FakeWS(ws)
+        ws._ws = fake
+
+        fake.reply = lambda req: {
+            "type": "error",
+            "id": req["id"],
+            "error": "no DESFire session open for this reader",
+        }
+
+        with pytest.raises(DesfireError) as exc_info:
+            await ws.desfire_transmit(0, apdu="9070000000")
+
+        assert exc_info.value.status_code is None

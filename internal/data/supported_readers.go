@@ -20,6 +20,11 @@ type ReaderCapability struct {
 	Read      bool `json:"read"`
 	Write     bool `json:"write"`
 	NDEF      bool `json:"ndef"`
+	// Desfire reports whether the reader can carry native DESFire APDUs for the
+	// transparent DESFire session (desfire_* WS messages). Advisory: the session
+	// itself fails clean if a given reader/card combination can't complete the
+	// exchange.
+	Desfire   bool `json:"desfire,omitempty"`
 	Display   bool `json:"display,omitempty"`
 	Bluetooth bool `json:"bluetooth,omitempty"`
 }

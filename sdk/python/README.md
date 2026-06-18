@@ -183,6 +183,15 @@ All methods from NFCClient, plus:
 | `write_records(reader_index, records)` | Write multiple NDEF records |
 | `health()` | Health check |
 
+##### DESFire Transparent Session
+
+| Method | Description |
+|--------|-------------|
+| `open_desfire_session(reader_index)` | Open a transparent DESFire APDU session (holds the card connection open) |
+| `desfire_transmit(reader_index, *, apdu)` | Transmit one APDU (hex), returns `{response, sw1, sw2}` |
+| `desfire_transmit_batch(reader_index, *, apdus)` | Transmit multiple APDUs in order, returns `{responses: [...]}` |
+| `close_desfire_session(reader_index)` | Close the DESFire session |
+
 #### Events
 
 ```python
@@ -267,6 +276,7 @@ from nfc_agent import (
     NFCAgentError,    # Base exception
     ConnectionError,  # Connection failed
     CardError,        # Card operation failed
+    DesfireError,     # DESFire session failed (subclass of CardError, optional .status_code)
     APIError,         # API returned error
     TimeoutError,     # Request timed out
     ReaderError,      # Reader issue
@@ -313,6 +323,38 @@ async with NFCClient() as client:
     )
     print(f"Block {block.block}: {block.data}")
 ```
+
+### DESFire Transparent Session
+
+For DESFire EV2/EV3 cards, the SDK exposes a **transparent APDU session** (WebSocket only — there is no REST equivalent). The agent holds the card connection open across messages so an external party — typically the SimplyPrint backend, which keeps the DESFire keys in its HSM — can drive an interactive `AuthenticateEV2First` handshake (a 3-pass challenge/response that can't be pre-computed) and the secure-messaging commands that follow.
+
+**The agent performs no DESFire cryptography and holds no keys.** Your code sends raw APDU bytes and gets the card's raw response (including the status word) back; all session secrets stay on your side. Send native DESFire APDUs (`CLA=0x90`) — the real commands come from the backend. Don't `subscribe` a reader while a session is open on it (unsubscribe first), and note sessions are dropped automatically on disconnect. Recommended readers are the ACR1252U / ACR1552U class.
+
+```python
+from nfc_agent import NFCWebSocket, DesfireError
+
+async with NFCWebSocket() as ws:
+    # Open the session — agent keeps the card connection open across calls
+    session = await ws.open_desfire_session(0)
+    print(f"UID: {session.uid}  ATR: {session.atr}")
+
+    try:
+        # Transmit one APDU. Use single transmits for the interactive auth handshake.
+        # (Here: the get-UID pseudo-APDU, answered by any ISO 14443-A card.)
+        resp = await ws.desfire_transmit(0, apdu="ffca000000")
+        print(resp.response, hex(resp.sw1), hex(resp.sw2))  # full reply incl. status word
+
+        # Batch transmit for non-interactive stretches
+        batch = await ws.desfire_transmit_batch(0, apdus=["ffca000000", "ffca000000"])
+        for r in batch.responses:
+            print(r.response, hex(r.sw1), hex(r.sw2))
+    except DesfireError as e:
+        print(f"DESFire error: {e}  status={e.status_code}")
+    finally:
+        await ws.close_desfire_session(0)
+```
+
+`apdu` and `response` are hex strings; `response` includes the trailing status word. Failures raise `DesfireError` (a subclass of `CardError`) with an optional `status_code`. See `scripts/test_desfire_session.py` for a card-agnostic smoke test.
 
 ### Monitor Multiple Readers
 

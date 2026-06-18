@@ -36,12 +36,16 @@ type WSClient struct {
 	send        chan []byte
 	hub         *WSHub
 	mu          sync.Mutex
-	closed      bool                      // True when client is disconnected
-	subscribed  map[string]bool           // Track subscribed readers for auto-read
+	closed      bool            // True when client is disconnected
+	subscribed  map[string]bool // Track subscribed readers for auto-read
 	pollTickers map[string]*time.Ticker
-	pollDone    map[string]chan struct{}   // Done channels to stop polling goroutines
-	lastUIDs    map[string]string         // Track last seen UID per reader
-	includeRaw  map[string]bool           // Whether to fire card_data with raw dump after card_detected
+	pollDone    map[string]chan struct{} // Done channels to stop polling goroutines
+	lastUIDs    map[string]string        // Track last seen UID per reader
+	includeRaw  map[string]bool          // Whether to fire card_data with raw dump after card_detected
+	// desfireSessions holds open transparent DESFire APDU sessions, keyed by
+	// reader name. Lifetime is bounded by this WS connection; all are closed on
+	// disconnect. Session state lives only here, in memory, never persisted.
+	desfireSessions map[string]*core.DesfireSession
 }
 
 // WSHub manages all WebSocket connections
@@ -157,8 +161,9 @@ func InitWebSocket() http.HandlerFunc {
 			subscribed:  make(map[string]bool),
 			pollTickers: make(map[string]*time.Ticker),
 			pollDone:    make(map[string]chan struct{}),
-			lastUIDs:    make(map[string]string),
-			includeRaw:  make(map[string]bool),
+			lastUIDs:        make(map[string]string),
+			includeRaw:      make(map[string]bool),
+			desfireSessions: make(map[string]*core.DesfireSession),
 		}
 
 		wsHub.register <- client
@@ -178,7 +183,16 @@ func (c *WSClient) readPump() {
 		for _, ticker := range c.pollTickers {
 			ticker.Stop()
 		}
+		// Drain any open DESFire sessions so the readers are released.
+		sessions := make([]*core.DesfireSession, 0, len(c.desfireSessions))
+		for _, s := range c.desfireSessions {
+			sessions = append(sessions, s)
+		}
+		c.desfireSessions = make(map[string]*core.DesfireSession)
 		c.mu.Unlock()
+		for _, s := range sessions {
+			s.Close()
+		}
 
 		c.hub.unregister <- c
 		c.conn.Close()
@@ -308,6 +322,14 @@ func (c *WSClient) handleMessage(msg WSMessage) {
 		c.handleAESEncryptAndWriteBlock(msg.ID, msg.Payload)
 	case "write_mifare_sector_trailer":
 		c.handleWriteMifareSectorTrailer(msg.ID, msg.Payload)
+	case "desfire_session_open":
+		c.handleDesfireSessionOpen(msg.ID, msg.Payload)
+	case "desfire_transmit":
+		c.handleDesfireTransmit(msg.ID, msg.Payload)
+	case "desfire_transmit_batch":
+		c.handleDesfireTransmitBatch(msg.ID, msg.Payload)
+	case "desfire_session_close":
+		c.handleDesfireSessionClose(msg.ID, msg.Payload)
 	default:
 		logging.Warn(logging.CatWebSocket, "Unknown message type", map[string]any{
 			"type": msg.Type,
@@ -402,7 +424,7 @@ func (c *WSClient) handleDumpCard(id string, payload json.RawMessage) {
 	}
 
 	c.sendResponse(id, "dump_card", struct {
-		ReaderIndex int `json:"readerIndex"`
+		ReaderIndex int    `json:"readerIndex"`
 		ReaderName  string `json:"readerName"`
 		*core.CardRawDump
 	}{req.ReaderIndex, readers[req.ReaderIndex].Name, dump})
@@ -430,7 +452,7 @@ func (c *WSClient) handleReadCardFull(id string, payload json.RawMessage) {
 	}
 
 	c.sendResponse(id, "read_card_full", struct {
-		ReaderIndex int `json:"readerIndex"`
+		ReaderIndex int    `json:"readerIndex"`
 		ReaderName  string `json:"readerName"`
 		*core.Card
 	}{req.ReaderIndex, readers[req.ReaderIndex].Name, card})
@@ -1384,5 +1406,194 @@ func (c *WSClient) handleWriteMifareSectorTrailer(id string, payload json.RawMes
 	c.sendResponse(id, "mifare_sector_trailer_written", map[string]interface{}{
 		"success": true,
 		"block":   req.Block,
+	})
+}
+
+// --- DESFire transparent session ---
+//
+// These handlers expose a raw, key-free APDU pipe to a card. The agent holds
+// the PC/SC connection open across messages so an external party (the
+// SimplyPrint backend, holding the keys in its HSM) can drive an interactive
+// DESFire AuthenticateEV2First handshake and the secure-messaging commands
+// that follow, turn by turn. The agent performs no DESFire crypto and never
+// sees a key. Sessions are bound to this WS connection and dropped on
+// disconnect.
+
+func (c *WSClient) getDesfireSession(readerName string) *core.DesfireSession {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.desfireSessions[readerName]
+}
+
+// desfireResponsePayload shapes a raw APDU response for the wire: the full
+// response (hex, including the status word) plus the decoded SW1/SW2 for
+// convenience. The agent does not interpret the bytes.
+func desfireResponsePayload(rsp []byte) map[string]interface{} {
+	payload := map[string]interface{}{
+		"response": hex.EncodeToString(rsp),
+	}
+	if sw1, sw2, ok := core.SplitStatusWord(rsp); ok {
+		payload["sw1"] = sw1
+		payload["sw2"] = sw2
+	}
+	return payload
+}
+
+func (c *WSClient) handleDesfireSessionOpen(id string, payload json.RawMessage) {
+	var req struct {
+		ReaderIndex int `json:"readerIndex"`
+	}
+	if err := json.Unmarshal(payload, &req); err != nil {
+		c.sendError(id, "invalid payload")
+		return
+	}
+
+	readers := core.ListReaders()
+	if req.ReaderIndex < 0 || req.ReaderIndex >= len(readers) {
+		c.sendError(id, "reader index out of range")
+		return
+	}
+	readerName := readers[req.ReaderIndex].Name
+
+	// Replace any existing session on this reader for this client.
+	c.mu.Lock()
+	existing := c.desfireSessions[readerName]
+	delete(c.desfireSessions, readerName)
+	c.mu.Unlock()
+	if existing != nil {
+		existing.Close()
+	}
+
+	session, err := core.OpenDesfireSession(readerName)
+	if err != nil {
+		c.sendError(id, err.Error())
+		return
+	}
+
+	c.mu.Lock()
+	c.desfireSessions[readerName] = session
+	c.mu.Unlock()
+
+	c.sendResponse(id, "desfire_session_opened", map[string]interface{}{
+		"readerIndex": req.ReaderIndex,
+		"readerName":  readerName,
+		"uid":         session.UID,
+		"atr":         session.ATR,
+	})
+}
+
+func (c *WSClient) handleDesfireTransmit(id string, payload json.RawMessage) {
+	var req struct {
+		ReaderIndex int    `json:"readerIndex"`
+		APDU        string `json:"apdu"` // Hex string
+	}
+	if err := json.Unmarshal(payload, &req); err != nil {
+		c.sendError(id, "invalid payload")
+		return
+	}
+
+	readers := core.ListReaders()
+	if req.ReaderIndex < 0 || req.ReaderIndex >= len(readers) {
+		c.sendError(id, "reader index out of range")
+		return
+	}
+	readerName := readers[req.ReaderIndex].Name
+
+	session := c.getDesfireSession(readerName)
+	if session == nil {
+		c.sendError(id, "no DESFire session open for this reader (send desfire_session_open first)")
+		return
+	}
+
+	apdu, err := hex.DecodeString(req.APDU)
+	if err != nil || len(apdu) == 0 {
+		c.sendError(id, "invalid apdu (must be a non-empty hex string)")
+		return
+	}
+
+	rsp, err := session.Transmit(apdu)
+	if err != nil {
+		c.sendError(id, err.Error())
+		return
+	}
+
+	c.sendResponse(id, "desfire_response", desfireResponsePayload(rsp))
+}
+
+func (c *WSClient) handleDesfireTransmitBatch(id string, payload json.RawMessage) {
+	var req struct {
+		ReaderIndex int      `json:"readerIndex"`
+		APDUs       []string `json:"apdus"` // Hex strings
+	}
+	if err := json.Unmarshal(payload, &req); err != nil {
+		c.sendError(id, "invalid payload")
+		return
+	}
+
+	readers := core.ListReaders()
+	if req.ReaderIndex < 0 || req.ReaderIndex >= len(readers) {
+		c.sendError(id, "reader index out of range")
+		return
+	}
+	if len(req.APDUs) == 0 {
+		c.sendError(id, "no apdus provided")
+		return
+	}
+	readerName := readers[req.ReaderIndex].Name
+
+	session := c.getDesfireSession(readerName)
+	if session == nil {
+		c.sendError(id, "no DESFire session open for this reader (send desfire_session_open first)")
+		return
+	}
+
+	responses := make([]map[string]interface{}, 0, len(req.APDUs))
+	for i, a := range req.APDUs {
+		apdu, err := hex.DecodeString(a)
+		if err != nil || len(apdu) == 0 {
+			c.sendError(id, fmt.Sprintf("apdu %d: invalid (must be a non-empty hex string)", i))
+			return
+		}
+		rsp, err := session.Transmit(apdu)
+		if err != nil {
+			c.sendError(id, fmt.Sprintf("apdu %d: %s", i, err.Error()))
+			return
+		}
+		responses = append(responses, desfireResponsePayload(rsp))
+	}
+
+	c.sendResponse(id, "desfire_responses", map[string]interface{}{
+		"responses": responses,
+	})
+}
+
+func (c *WSClient) handleDesfireSessionClose(id string, payload json.RawMessage) {
+	var req struct {
+		ReaderIndex int `json:"readerIndex"`
+	}
+	if err := json.Unmarshal(payload, &req); err != nil {
+		c.sendError(id, "invalid payload")
+		return
+	}
+
+	readers := core.ListReaders()
+	if req.ReaderIndex < 0 || req.ReaderIndex >= len(readers) {
+		c.sendError(id, "reader index out of range")
+		return
+	}
+	readerName := readers[req.ReaderIndex].Name
+
+	c.mu.Lock()
+	session := c.desfireSessions[readerName]
+	delete(c.desfireSessions, readerName)
+	c.mu.Unlock()
+
+	if session != nil {
+		session.Close()
+	}
+
+	c.sendResponse(id, "desfire_session_closed", map[string]interface{}{
+		"readerIndex": req.ReaderIndex,
+		"readerName":  readerName,
 	})
 }

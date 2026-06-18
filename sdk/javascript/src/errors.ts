@@ -40,6 +40,23 @@ export class CardError extends NFCAgentError {
 }
 
 /**
+ * Error thrown for transparent DESFire session failures.
+ *
+ * When the failure carries a DESFire status word (e.g. 0x91AF), it is parsed
+ * out of the agent's error message and exposed via {@link DesfireError.statusCode}.
+ */
+export class DesfireError extends CardError {
+  /** DESFire status word (e.g. 0x91AF), if one could be parsed from the error */
+  public readonly statusCode?: number;
+
+  constructor(message: string, statusCode?: number) {
+    super(message);
+    this.name = 'DesfireError';
+    this.statusCode = statusCode;
+  }
+}
+
+/**
  * Error thrown when the API returns an error response
  */
 export class APIError extends NFCAgentError {

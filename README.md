@@ -298,6 +298,7 @@ Connect to `ws://127.0.0.1:32145/v1/ws` for real-time card events.
 - `erase_card`, `lock_card`, `set_password`, `remove_password`
 - `read_mifare_block`, `write_mifare_block`, `write_mifare_blocks` - Raw MIFARE Classic block access
 - `read_ultralight_page`, `write_ultralight_page`, `write_ultralight_pages` - Raw MIFARE Ultralight page access
+- `desfire_session_open`, `desfire_transmit`, `desfire_transmit_batch`, `desfire_session_close` - Transparent DESFire APDU session (WebSocket only)
 - `derive_uid_key_aes` - Derive 6-byte key from UID via AES
 - `aes_encrypt_and_write_block` - AES encrypt + write MIFARE block
 - `write_mifare_sector_trailer` - Write sector trailer with keys and access bits
@@ -547,6 +548,47 @@ await client.writeUltralightPage(0, 4, { data: 'DEADBEEF', password: '12345678' 
 MIFARE Ultralight EV1 supports password protection:
 - Password is 4 bytes (8 hex characters)
 - Use `password` parameter when accessing protected pages
+
+## DESFire (Transparent Session)
+
+For DESFire EV2/EV3 cards, NFC Agent exposes a **transparent APDU session over the WebSocket transport only** (there are no REST endpoints). The agent holds the PC/SC connection to one card open across multiple messages so an external party — typically the SimplyPrint backend, which keeps the DESFire keys in its HSM — can drive an interactive mutual-authentication handshake (`AuthenticateEV2First` is a 3-pass challenge/response that cannot be pre-computed) and the secure-messaging commands that follow, turn by turn.
+
+**The agent performs no DESFire cryptography and holds no keys.** It forwards caller-supplied APDU bytes verbatim and returns the card's raw response (including the status word). All session secrets — transaction id, command counter, session keys — stay with whoever drives the handshake; never in the agent, never on disk, never in logs. This is deliberately a raw relay rather than typed DESFire verbs, keeping the agent aligned with its "expose raw access, don't bake in app/brand logic" philosophy and avoiding hand-rolled secure messaging.
+
+Send native DESFire APDUs (`CLA=0x90`) over this pipe; the real commands are supplied by the backend. **Recommended readers: ACR1252U / ACR1552U class.** The ACR122U works, but its firmware is not upgradeable and it has documented AES-encrypted-write quirks.
+
+**Session lifecycle:**
+- A session is bound to the WebSocket connection and is automatically dropped on disconnect.
+- Don't poll or `subscribe` a reader while a DESFire session is open on it — `unsubscribe` first to avoid contending for the card.
+- Each reader in `/v1/supported-readers` now carries an advisory `desfire` flag in its `capabilities`. It's a hint only; the session still fails clean with a typed error if a reader or card can't complete the exchange.
+
+### WebSocket Messages
+
+| Message | Payload | Response |
+|---------|---------|----------|
+| `desfire_session_open` | `{readerIndex}` | `desfire_session_opened {readerIndex, readerName, uid, atr}` |
+| `desfire_transmit` | `{readerIndex, apdu}` | `desfire_response {response, sw1, sw2}` |
+| `desfire_transmit_batch` | `{readerIndex, apdus[]}` | `desfire_responses {responses: [{response, sw1, sw2}]}` |
+| `desfire_session_close` | `{readerIndex}` | `desfire_session_closed {readerName}` |
+
+`apdu` / `response` values are hex strings; `response` is the full card reply including the trailing status word. Use single `desfire_transmit` calls for the authentication handshake (it's interactive — each pass depends on the card's previous response); `desfire_transmit_batch` is for the non-interactive stretches. Errors are returned as `{"type":"error","id":...,"error":"<string>"}`.
+
+### Example (open → get-UID → close)
+
+The get-UID pseudo-APDU (`FFCA000000`) is answered by any ISO 14443-A card, so it's a card-agnostic way to prove the pipe works end-to-end. Real DESFire use sends `0x90`-class APDUs supplied by the backend.
+
+```json
+→ {"type":"desfire_session_open","id":"1","payload":{"readerIndex":0}}
+← {"type":"desfire_session_opened","id":"1","payload":{"readerIndex":0,"readerName":"ACS ACR1252U PICC Reader","uid":"04a2b3c4d5e607","atr":"3b8f8001..."}}
+
+→ {"type":"desfire_transmit","id":"2","payload":{"readerIndex":0,"apdu":"ffca000000"}}
+← {"type":"desfire_response","id":"2","payload":{"response":"04a2b3c4d5e6079000","sw1":144,"sw2":0}}
+
+→ {"type":"desfire_session_close","id":"3","payload":{"readerIndex":0}}
+← {"type":"desfire_session_closed","id":"3","payload":{"readerIndex":0,"readerName":"ACS ACR1252U PICC Reader"}}
+```
+
+A smoke-test script is provided at `scripts/test_desfire_session.py`.
 
 ## AES-Encrypted MIFARE Classic Operations
 

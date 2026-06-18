@@ -87,6 +87,8 @@ export interface SupportedReader {
     read: boolean;
     write: boolean;
     ndef: boolean;
+    /** Whether the reader supports transparent DESFire APDU sessions */
+    desfire?: boolean;
   };
   limitations?: string[];
 }
@@ -143,7 +145,11 @@ export type WSMessageType =
   | 'aes_encrypt_and_write_block'
   | 'write_mifare_sector_trailer'
   | 'dump_card'
-  | 'read_card_full';
+  | 'read_card_full'
+  | 'desfire_session_open'
+  | 'desfire_transmit'
+  | 'desfire_transmit_batch'
+  | 'desfire_session_close';
 
 /**
  * WebSocket event types (server push)
@@ -668,4 +674,69 @@ export interface SubscribeOptions {
    * containing the full raw memory dump of the card. Default: false.
    */
   includeRaw?: boolean;
+}
+
+// ============================================================================
+// DESFire Transparent Session Types
+// ============================================================================
+
+/**
+ * Information about an open transparent DESFire session.
+ *
+ * The agent only ferries raw APDUs to and from the card; it performs no
+ * cryptography and holds no keys. The caller (typically a backend) drives the
+ * full DESFire handshake over {@link NFCAgentWebSocket.desfireTransmit}.
+ */
+export interface DesfireSessionInfo {
+  /** Name of the reader the session is bound to */
+  readerName: string;
+  /** Card UID (hex string) */
+  uid: string;
+  /** Answer To Reset (hex string) */
+  atr: string;
+}
+
+/**
+ * Response to a single transparent DESFire APDU exchange
+ */
+export interface DesfireResponse {
+  /** Full card response as a hex string, including the trailing status word */
+  response: string;
+  /** Status word high byte (omitted when the response is shorter than 2 bytes) */
+  sw1?: number;
+  /** Status word low byte (omitted when the response is shorter than 2 bytes) */
+  sw2?: number;
+}
+
+/**
+ * Response to a batch of transparent DESFire APDU exchanges
+ */
+export interface DesfireBatchResponse {
+  /** Responses in the same order as the submitted APDUs */
+  responses: DesfireResponse[];
+}
+
+/**
+ * Payload for desfire_session_open / desfire_session_close WebSocket requests
+ */
+export interface DesfireSessionPayload {
+  readerIndex: number;
+}
+
+/**
+ * Payload for desfire_transmit WebSocket request
+ */
+export interface DesfireTransmitPayload {
+  readerIndex: number;
+  /** APDU to transmit as a hex string */
+  apdu: string;
+}
+
+/**
+ * Payload for desfire_transmit_batch WebSocket request
+ */
+export interface DesfireTransmitBatchPayload {
+  readerIndex: number;
+  /** APDUs to transmit, in order, as hex strings */
+  apdus: string[];
 }

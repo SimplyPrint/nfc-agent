@@ -12,7 +12,13 @@ from typing import Any, Callable
 import websockets
 from websockets.asyncio.client import ClientConnection
 
-from .exceptions import CardError, ConnectionError, NFCAgentError, TimeoutError
+from .exceptions import (
+    CardError,
+    ConnectionError,
+    DesfireError,
+    NFCAgentError,
+    TimeoutError,
+)
 from .types import (
     Card,
     CardDataEvent,
@@ -21,6 +27,8 @@ from .types import (
     CardRawDump,
     CardRemovedEvent,
     DerivedKeyData,
+    DesfireResponse,
+    DesfireSessionInfo,
     HealthInfo,
     MifareBatchWriteResult,
     MifareBlockData,
@@ -47,6 +55,25 @@ CardDataCallback = Callable[[CardDataEvent], None]
 ReadersChangedCallback = Callable[[ReadersChangedEvent], None]
 ConnectionCallback = Callable[[], None]
 ErrorCallback = Callable[[Exception], None]
+
+
+# DESFire/APDU status word as reported in agent error strings, e.g.
+# "... status 0x91AF ...". Used to surface the status word on DesfireError.
+_DESFIRE_STATUS_RE = re.compile(r"status 0x([0-9A-Fa-f]{1,4})")
+
+
+def _to_desfire_error(err: NFCAgentError) -> DesfireError:
+    """Translate a desfire_* request failure into a DesfireError.
+
+    Parses a DESFire/APDU status word out of the message (if present) so callers
+    can branch on it without re-parsing the string.
+    """
+    message = str(err)
+    status_code: int | None = None
+    match = _DESFIRE_STATUS_RE.search(message)
+    if match:
+        status_code = int(match.group(1), 16)
+    return DesfireError(message, status_code=status_code)
 
 
 def _to_snake_case(name: str) -> str:
@@ -694,6 +721,131 @@ class NFCWebSocket:
             await self._request("write_mifare_sector_trailer", payload)
         except NFCAgentError as e:
             raise CardError(str(e)) from e
+
+    # =========================================================================
+    # DESFire Transparent Session Methods
+    # =========================================================================
+
+    async def open_desfire_session(self, reader_index: int) -> DesfireSessionInfo:
+        """Open a transparent DESFire APDU session on a reader.
+
+        Holds the card connection open so the caller can drive a raw APDU
+        exchange (e.g. the AuthenticateEV2First handshake and the secure-
+        messaging commands that follow). The agent performs no DESFire crypto
+        and holds no keys -- the caller (the SimplyPrint backend) drives the
+        handshake. Any open session on this reader is replaced.
+
+        Args:
+            reader_index: Index of the reader (0-based)
+
+        Returns:
+            DesfireSessionInfo with the reader name, card UID, and ATR
+
+        Raises:
+            DesfireError: If the session cannot be opened
+        """
+        try:
+            response = await self._request(
+                "desfire_session_open", {"readerIndex": reader_index}
+            )
+            return DesfireSessionInfo(
+                reader_name=response.get("readerName", ""),
+                uid=response.get("uid", ""),
+                atr=response.get("atr", ""),
+            )
+        except NFCAgentError as e:
+            raise _to_desfire_error(e) from e
+
+    async def desfire_transmit(
+        self, reader_index: int, *, apdu: str
+    ) -> DesfireResponse:
+        """Transmit a single raw APDU over an open DESFire session.
+
+        The agent performs no DESFire crypto and holds no keys -- the caller
+        (the SimplyPrint backend) builds the APDUs and drives the handshake. The
+        full response (including the trailing status word) is returned verbatim.
+
+        Args:
+            reader_index: Index of the reader (0-based)
+            apdu: APDU to send as a hex string
+
+        Returns:
+            DesfireResponse with the raw response and decoded SW1/SW2
+
+        Raises:
+            DesfireError: If no session is open or the transmit fails. If the
+                error carries a DESFire status word, it is parsed into
+                ``DesfireError.status_code``.
+        """
+        try:
+            response = await self._request(
+                "desfire_transmit", {"readerIndex": reader_index, "apdu": apdu}
+            )
+            return DesfireResponse(
+                response=response.get("response", ""),
+                sw1=response.get("sw1"),
+                sw2=response.get("sw2"),
+            )
+        except NFCAgentError as e:
+            raise _to_desfire_error(e) from e
+
+    async def desfire_transmit_batch(
+        self, reader_index: int, *, apdus: list[str]
+    ) -> list[DesfireResponse]:
+        """Transmit multiple raw APDUs over an open DESFire session in order.
+
+        Sends each APDU in sequence on the same session and returns one response
+        per request. The agent performs no DESFire crypto and holds no keys --
+        the caller (the SimplyPrint backend) builds the APDUs and drives the
+        handshake.
+
+        Args:
+            reader_index: Index of the reader (0-based)
+            apdus: APDUs to send, each as a hex string
+
+        Returns:
+            List of DesfireResponse, one per APDU
+
+        Raises:
+            DesfireError: If no session is open or a transmit fails. If the
+                error carries a DESFire status word, it is parsed into
+                ``DesfireError.status_code``.
+        """
+        try:
+            response = await self._request(
+                "desfire_transmit_batch",
+                {"readerIndex": reader_index, "apdus": apdus},
+            )
+            return [
+                DesfireResponse(
+                    response=r.get("response", ""),
+                    sw1=r.get("sw1"),
+                    sw2=r.get("sw2"),
+                )
+                for r in response.get("responses", [])
+            ]
+        except NFCAgentError as e:
+            raise _to_desfire_error(e) from e
+
+    async def close_desfire_session(self, reader_index: int) -> None:
+        """Close the transparent DESFire session on a reader.
+
+        Releases the card connection. The agent performs no DESFire crypto and
+        holds no keys -- closing only drops the connection the caller was driving.
+        Safe to call even if no session is open.
+
+        Args:
+            reader_index: Index of the reader (0-based)
+
+        Raises:
+            DesfireError: If the close request fails
+        """
+        try:
+            await self._request(
+                "desfire_session_close", {"readerIndex": reader_index}
+            )
+        except NFCAgentError as e:
+            raise _to_desfire_error(e) from e
 
     # =========================================================================
     # Internal Methods
