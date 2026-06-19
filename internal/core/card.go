@@ -895,6 +895,17 @@ func WriteDataWithURL(readerName string, data []byte, dataType string, url strin
 		if err := writeMifareClassic(card, ndefMessage); err != nil {
 			return fmt.Errorf("failed to write NDEF message: %w", err)
 		}
+	} else if cardInfo.Protocol == "NFC-V" {
+		// ISO 15693 (ICode SLI/SLIX/SLIX2): CC at block 0, NDEF TLV at block 1.
+		// Do NOT pad to card.Size — writing past block 79 causes errors on ICode SLIX2.
+		// E1=NDEF magic, 40=v1.0 read/write, 27=MLEN 39 (40×8=320 bytes), 01=MBREAD
+		cc := []byte{0xE1, 0x40, 0x27, 0x01}
+		if err := writeNTAGPages(card, 0, cc); err != nil {
+			return fmt.Errorf("failed to write NDEF message: %w", err)
+		}
+		if err := writeNTAGPages(card, 1, ndefMessage); err != nil {
+			return fmt.Errorf("failed to write NDEF message: %w", err)
+		}
 	} else {
 		// NTAG and other cards use page-based writes.
 		// Zero-fill remaining user pages after the NDEF data so leftover
@@ -1581,13 +1592,6 @@ func readNDEFData(card *scard.Card, cardInfo *Card) {
 
 			allData = append(allData, blockData...)
 
-			// Check for NDEF terminator
-			for _, b := range blockData {
-				if b == 0xFE {
-					goto done
-				}
-			}
-
 			// Check if we have complete NDEF message
 			if len(allData) > 2 && allData[0] == 0x03 {
 				var ndefLength, ndefStart int
@@ -1598,8 +1602,19 @@ func readNDEFData(card *scard.Card, cardInfo *Card) {
 					ndefLength = int(allData[1])
 					ndefStart = 2
 				}
-				if ndefStart > 0 && len(allData) >= ndefStart+ndefLength+1 {
-					break
+				if ndefStart > 0 {
+					if len(allData) >= ndefStart+ndefLength+1 {
+						break
+					}
+					// Skip 0xFE check inside NDEF payload — binary payloads (CBOR) may contain 0xFE as data
+					continue
+				}
+			}
+
+			// Check for NDEF terminator (only when NDEF header not yet parsed)
+			for _, b := range blockData {
+				if b == 0xFE {
+					goto done
 				}
 			}
 		}
@@ -1624,13 +1639,6 @@ func readNDEFData(card *scard.Card, cardInfo *Card) {
 
 			allData = append(allData, pageData...)
 
-			// Check for NDEF terminator
-			for _, b := range pageData {
-				if b == 0xFE {
-					goto done
-				}
-			}
-
 			// Check if we have complete NDEF message
 			if len(allData) > 2 && allData[0] == 0x03 {
 				var ndefLength, ndefStart int
@@ -1641,8 +1649,19 @@ func readNDEFData(card *scard.Card, cardInfo *Card) {
 					ndefLength = int(allData[1])
 					ndefStart = 2
 				}
-				if ndefStart > 0 && len(allData) >= ndefStart+ndefLength+1 {
-					break
+				if ndefStart > 0 {
+					if len(allData) >= ndefStart+ndefLength+1 {
+						break
+					}
+					// Skip 0xFE check inside NDEF payload — binary payloads (CBOR) may contain 0xFE as data
+					continue
+				}
+			}
+
+			// Check for NDEF terminator (only when NDEF header not yet parsed)
+			for _, b := range pageData {
+				if b == 0xFE {
+					goto done
 				}
 			}
 		}
@@ -2223,12 +2242,9 @@ func WriteMultipleRecords(readerName string, records []NDEFRecord) error {
 
 	if isISO15693 {
 		// ISO 15693 (Type 5) tags: CC at block 0, NDEF at block 1
-		// CC format: E1 [version/access] [size/8] [features]
-		// - 0xE1: Magic number
-		// - 0x40: Version 1.0 (4), read/write access (0)
-		// - Size: Available memory / 8 (we'll use 0x40 = 512 bytes, conservative)
-		// - 0x00: No special features
-		cc := []byte{0xE1, 0x40, 0x40, 0x00}
+		// CC format: E1 [version/access] [MLEN] [features]
+		// E1=NDEF magic, 40=v1.0 read/write, 27=MLEN 39 ((39+1)×8=320 bytes for ICode SLIX2), 01=MBREAD
+		cc := []byte{0xE1, 0x40, 0x27, 0x01}
 
 		// Write CC at block 0
 		if err := writeNTAGPages(card, 0, cc); err != nil {

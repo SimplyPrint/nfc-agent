@@ -25,26 +25,27 @@ const (
 type MaterialType uint8
 
 const (
-	// FFF material types
+	// FFF material types — valeurs conformes spec OpenPrintTag (material_type_enum.yaml)
 	MaterialTypePLA      MaterialType = 0
-	MaterialTypeABS      MaterialType = 1
-	MaterialTypePETG     MaterialType = 2
-	MaterialTypeASA      MaterialType = 3
-	MaterialTypePC       MaterialType = 4
-	MaterialTypeNylon    MaterialType = 5
-	MaterialTypeTPU      MaterialType = 6
-	MaterialTypePVA      MaterialType = 7
-	MaterialTypeHIPS     MaterialType = 8
-	MaterialTypePP       MaterialType = 9
-	MaterialTypePEI      MaterialType = 10
-	MaterialTypePEEK     MaterialType = 11
-	MaterialTypePA       MaterialType = 12
-	MaterialTypePACF     MaterialType = 13
-	MaterialTypePAGF     MaterialType = 14
-	MaterialTypePLACF    MaterialType = 15
-	MaterialTypePLAGF    MaterialType = 16
-	MaterialTypePETGCF   MaterialType = 17
-	MaterialTypePETGGF   MaterialType = 18
+	MaterialTypePETG     MaterialType = 1
+	MaterialTypeTPU      MaterialType = 2
+	MaterialTypeABS      MaterialType = 3
+	MaterialTypeASA      MaterialType = 4
+	MaterialTypePC       MaterialType = 5
+	MaterialTypePCTG     MaterialType = 6
+	MaterialTypePP       MaterialType = 7
+	MaterialTypePA       MaterialType = 8  // PA6
+	MaterialTypeHIPS     MaterialType = 14
+	MaterialTypePEI      MaterialType = 17
+	MaterialTypePVA      MaterialType = 20
+	MaterialTypePEEK     MaterialType = 22
+	MaterialTypeNylon    MaterialType = 56  // générique, hors spec de base
+	MaterialTypePACF     MaterialType = 100 // composite, valeur propriétaire
+	MaterialTypePAGF     MaterialType = 101
+	MaterialTypePLACF    MaterialType = 102
+	MaterialTypePLAGF    MaterialType = 103
+	MaterialTypePETGCF   MaterialType = 104
+	MaterialTypePETGGF   MaterialType = 105
 	MaterialTypeOther    MaterialType = 255
 )
 
@@ -173,6 +174,11 @@ type Response struct {
 	MaterialUUID  string `json:"materialUuid,omitempty"`
 	BrandUUID     string `json:"brandUuid,omitempty"`
 
+	// Brand-specific identifiers (MainSection keys 5-7)
+	BrandSpecificInstanceID string `json:"brandSpecificInstanceId,omitempty"`
+	BrandSpecificPackageID  string `json:"brandSpecificPackageId,omitempty"`
+	BrandSpecificMaterialID string `json:"brandSpecificMaterialId,omitempty"`
+
 	// Weight information
 	NominalWeight   float32 `json:"nominalWeight,omitempty"`
 	ConsumedWeight  float32 `json:"consumedWeight,omitempty"`
@@ -189,10 +195,25 @@ type Response struct {
 	SpoolWeight  float32 `json:"spoolWeight,omitempty"`  // empty container weight
 
 	// Temperature settings
-	MinPrintTemp uint16 `json:"minPrintTemp,omitempty"`
-	MaxPrintTemp uint16 `json:"maxPrintTemp,omitempty"`
-	MinBedTemp   uint16 `json:"minBedTemp,omitempty"`
-	MaxBedTemp   uint16 `json:"maxBedTemp,omitempty"`
+	MinPrintTemp   uint16 `json:"minPrintTemp,omitempty"`
+	MaxPrintTemp   uint16 `json:"maxPrintTemp,omitempty"`
+	MinBedTemp     uint16 `json:"minBedTemp,omitempty"`
+	MaxBedTemp     uint16 `json:"maxBedTemp,omitempty"`
+	PreheatTemp    uint16 `json:"preheatTemp,omitempty"`    // key 36
+	MinChamberTemp uint16 `json:"minChamberTemp,omitempty"` // key 39
+	ChamberTemp    uint16 `json:"chamberTemp,omitempty"`    // key 41
+
+	// GTIN
+	GTIN uint64 `json:"gtin,omitempty"` // key 4
+
+	// Length
+	NominalFullLength uint32 `json:"nominalFullLength,omitempty"` // key 53, mm
+
+	// Container dimensions (mm)
+	ContainerWidth     uint16 `json:"containerWidth,omitempty"`     // key 42
+	ContainerOuterDiam uint16 `json:"containerOuterDiam,omitempty"` // key 43
+	ContainerInnerDiam uint16 `json:"containerInnerDiam,omitempty"` // key 44
+	ContainerHoleDiam  uint16 `json:"containerHoleDiam,omitempty"`  // key 45
 
 	// Dates
 	ManufacturedDate uint32 `json:"manufacturedDate,omitempty"`
@@ -212,19 +233,35 @@ type Input struct {
 	NominalWeight float32 `json:"nominalWeight"`
 
 	// Optional fields
-	InstanceUUID     string  `json:"instanceUuid,omitempty"`
-	PackageUUID      string  `json:"packageUuid,omitempty"`
-	MaterialUUID     string  `json:"materialUuid,omitempty"`
-	BrandUUID        string  `json:"brandUuid,omitempty"`
+	InstanceUUID        string  `json:"instanceUuid,omitempty"`
+	PackageUUID         string  `json:"packageUuid,omitempty"`
+	MaterialUUID        string  `json:"materialUuid,omitempty"`
+	BrandUUID           string  `json:"brandUuid,omitempty"`
+	GTIN                uint64  `json:"gtin,omitempty"`                // key 4
+	BrandSpecificInstID string  `json:"brandSpecificInstId,omitempty"` // key 5: brand_specific_id de l'instance
+	BrandSpecificPkgID  string  `json:"brandSpecificPkgId,omitempty"`  // key 6: brand_specific_id du package catalogue
 	FilamentDiameter float32 `json:"filamentDiameter,omitempty"`
 	PrimaryColor     string  `json:"primaryColor,omitempty"` // hex #RRGGBB or #RRGGBBAA
 	Density          float32 `json:"density,omitempty"`
 	MinPrintTemp     uint16  `json:"minPrintTemp,omitempty"`
 	MaxPrintTemp     uint16  `json:"maxPrintTemp,omitempty"`
-	ConsumedWeight   float32 `json:"consumedWeight,omitempty"`
-	Workgroup        string  `json:"workgroup,omitempty"`
-	ManufacturedDate uint32  `json:"manufacturedDate,omitempty"`
-	ExpirationDate   uint32  `json:"expirationDate,omitempty"`
+	MinBedTemp       uint16  `json:"minBedTemp,omitempty"`
+	MaxBedTemp       uint16  `json:"maxBedTemp,omitempty"`
+	ConsumedWeight    float32 `json:"consumedWeight,omitempty"`
+	ActualWeight      float32 `json:"actualWeight,omitempty"`      // key 17: actual netto full weight
+	SpoolWeight       float32 `json:"spoolWeight,omitempty"`       // key 18: empty container weight
+	PreheatTemp       uint16  `json:"preheatTemp,omitempty"`       // key 36
+	MinChamberTemp    uint16  `json:"minChamberTemp,omitempty"`    // key 39
+	ChamberTemp          uint16  `json:"chamberTemp,omitempty"`          // key 41
+	ContainerWidth       uint16  `json:"containerWidth,omitempty"`       // key 42: mm
+	ContainerOuterDiam   uint16  `json:"containerOuterDiam,omitempty"`   // key 43: mm
+	ContainerInnerDiam   uint16  `json:"containerInnerDiam,omitempty"`   // key 44: mm
+	ContainerHoleDiam    uint16  `json:"containerHoleDiam,omitempty"`    // key 45: mm
+	NominalFullLength    uint32  `json:"nominalFullLength,omitempty"`    // key 53: mm
+	ActualFullLength     uint32  `json:"actualFullLength,omitempty"`     // key 54: mm
+	Workgroup         string  `json:"workgroup,omitempty"`
+	ManufacturedDate  uint32  `json:"manufacturedDate,omitempty"`
+	ExpirationDate    uint32  `json:"expirationDate,omitempty"`
 }
 
 // ToResponse converts internal OpenPrintTag to API response
@@ -241,13 +278,22 @@ func (o *OpenPrintTag) ToResponse() *Response {
 		FilamentDiameter: o.Main.FilamentDiameter,
 		FilamentLength:   o.Main.ActualFullLength,
 		Density:          o.Main.Density,
-		MinPrintTemp:     o.Main.MinPrintTemp,
-		MaxPrintTemp:     o.Main.MaxPrintTemp,
-		MinBedTemp:       o.Main.MinBedTemp,
-		MaxBedTemp:       o.Main.MaxBedTemp,
-		ManufacturedDate: o.Main.ManufacturedDate,
-		ExpirationDate:   o.Main.ExpirationDate,
-		Workgroup:        o.Aux.Workgroup,
+		MinPrintTemp:       o.Main.MinPrintTemp,
+		MaxPrintTemp:       o.Main.MaxPrintTemp,
+		MinBedTemp:         o.Main.MinBedTemp,
+		MaxBedTemp:         o.Main.MaxBedTemp,
+		PreheatTemp:        o.Main.PreheatTemp,
+		MinChamberTemp:     o.Main.MinChamberTemp,
+		ChamberTemp:        o.Main.ChamberTemp,
+		GTIN:               o.Main.GTIN,
+		NominalFullLength:  o.Main.NominalFullLength,
+		ContainerWidth:     o.Main.ContainerWidth,
+		ContainerOuterDiam: o.Main.ContainerOuterDiameter,
+		ContainerInnerDiam: o.Main.ContainerInnerDiameter,
+		ContainerHoleDiam:  o.Main.ContainerHoleDiameter,
+		ManufacturedDate:   o.Main.ManufacturedDate,
+		ExpirationDate:     o.Main.ExpirationDate,
+		Workgroup:          o.Aux.Workgroup,
 	}
 
 	// Calculate remaining weight
@@ -271,6 +317,11 @@ func (o *OpenPrintTag) ToResponse() *Response {
 	if len(o.Main.BrandUUID) == 16 {
 		resp.BrandUUID = formatUUID(o.Main.BrandUUID)
 	}
+
+	// Brand-specific identifiers
+	resp.BrandSpecificInstanceID = o.Main.BrandSpecificInstanceID
+	resp.BrandSpecificPackageID  = o.Main.BrandSpecificPackageID
+	resp.BrandSpecificMaterialID = o.Main.BrandSpecificMaterialID
 
 	// Convert color to hex string
 	if len(o.Main.PrimaryColor) >= 3 {
@@ -296,18 +347,19 @@ func materialClassToString(mc MaterialClass) string {
 func materialTypeToString(mt MaterialType) string {
 	names := map[MaterialType]string{
 		MaterialTypePLA:    "PLA",
-		MaterialTypeABS:    "ABS",
 		MaterialTypePETG:   "PETG",
+		MaterialTypeTPU:    "TPU",
+		MaterialTypeABS:    "ABS",
 		MaterialTypeASA:    "ASA",
 		MaterialTypePC:     "PC",
-		MaterialTypeNylon:  "Nylon",
-		MaterialTypeTPU:    "TPU",
-		MaterialTypePVA:    "PVA",
-		MaterialTypeHIPS:   "HIPS",
+		MaterialTypePCTG:   "PCTG",
 		MaterialTypePP:     "PP",
-		MaterialTypePEI:    "PEI",
-		MaterialTypePEEK:   "PEEK",
 		MaterialTypePA:     "PA",
+		MaterialTypeHIPS:   "HIPS",
+		MaterialTypePEI:    "PEI",
+		MaterialTypePVA:    "PVA",
+		MaterialTypePEEK:   "PEEK",
+		MaterialTypeNylon:  "Nylon",
 		MaterialTypePACF:   "PA-CF",
 		MaterialTypePAGF:   "PA-GF",
 		MaterialTypePLACF:  "PLA-CF",

@@ -118,3 +118,42 @@ Full API reference: [`.ai/api.md`](.ai/api.md)
 | `internal/config/config.go` | Environment variable config |
 | `.goreleaser.yaml` | Linux release packaging config |
 | `.github/workflows/build.yml` | Full release CI pipeline |
+
+
+## Fork gienne/nfc-agent — Specific Changes
+
+This repo is a fork of `SimplyPrint/nfc-agent`, adapted for the **bobines** app (3D filament spool management on Raspberry Pi). Changes are concentrated in `internal/openprinttag/`.
+
+### Key fork commits
+
+| Commit | Description |
+|--------|-------------|
+| `5912c1c` | fix: NDEF read — skip `0xFE` inside CBOR payload (false-positive terminator) |
+| `521fa5b` | fix: ICode SLIX2 CC bytes `E1 40 27 01` (MLEN=39) + actualWeight/spoolWeight/preheatTemp/lengths |
+| `becaad8` | feat: Input struct — brandSpecificInstId/PkgId + container dimensions (keys 5,6,42-45) |
+| `6ea01f7` | feat: Input struct — GTIN uint64 (key 4) + codec.go mapping |
+| `0180716` | feat: Response struct — GTIN, preheat/chamber temps, container dims, nominalFullLength |
+
+### Modified files
+
+- `internal/openprinttag/openprinttag.go` — `Input`, `Response`, `ToOpenPrintTag()`, `ToResponse()` structs
+- `internal/openprinttag/codec.go` — CBOR encode/decode; Input → OpenPrintTag.Main mapping
+
+### Rule: update Input AND Response together
+
+When adding a CBOR field:
+1. Add to `Input` struct + add mapping in `ToOpenPrintTag()` (codec.go) → **write path**
+2. Add to `Response` struct + add mapping in `ToResponse()` (openprinttag.go) → **read path**
+
+Missing step 2 means the field is written to the tag but absent from `GET /card` JSON.
+
+### Integration with bobines app
+
+The PHP app (`/var/www/bobines-next/`) communicates with this service via `modules/filament/nfc-proxy.php` (HTTP proxy → port 32145). JSON fields returned by `GET /v1/readers/0/card` are used directly by PHP.
+
+When adding fields written to the tag, update in parallel:
+- `nfc-proxy.php` (build the JSON payload sent to `POST /card`)
+- `nfc-tag-write.php` (its own catRes SQL query + preview table)
+- `add-form.php`, `edit-form.php`, `duplicate-form.php` + their handlers (if new MPI column)
+- `trash-handler.php` (explicit column list in restore SELECT/INSERT)
+- `nfc-erase.php` + `scripts/nfc-read.sh` (display of read data)

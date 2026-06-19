@@ -489,8 +489,24 @@ func (i *Input) ToOpenPrintTag() (*OpenPrintTag, error) {
 	opt.Main.NominalNettoFullWeight = i.NominalWeight
 	opt.Main.FilamentDiameter = i.FilamentDiameter
 	opt.Main.Density = i.Density
+	opt.Main.GTIN = i.GTIN
+	opt.Main.BrandSpecificInstanceID = i.BrandSpecificInstID
+	opt.Main.BrandSpecificPackageID = i.BrandSpecificPkgID
+	opt.Main.ActualNettoFullWeight = i.ActualWeight
+	opt.Main.EmptyContainerWeight = i.SpoolWeight
 	opt.Main.MinPrintTemp = i.MinPrintTemp
 	opt.Main.MaxPrintTemp = i.MaxPrintTemp
+	opt.Main.PreheatTemp = i.PreheatTemp
+	opt.Main.MinBedTemp = i.MinBedTemp
+	opt.Main.MaxBedTemp = i.MaxBedTemp
+	opt.Main.MinChamberTemp = i.MinChamberTemp
+	opt.Main.ChamberTemp = i.ChamberTemp
+	opt.Main.ContainerWidth = i.ContainerWidth
+	opt.Main.ContainerOuterDiameter = i.ContainerOuterDiam
+	opt.Main.ContainerInnerDiameter = i.ContainerInnerDiam
+	opt.Main.ContainerHoleDiameter = i.ContainerHoleDiam
+	opt.Main.NominalFullLength = i.NominalFullLength
+	opt.Main.ActualFullLength = i.ActualFullLength
 	opt.Main.ManufacturedDate = i.ManufacturedDate
 	opt.Main.ExpirationDate = i.ExpirationDate
 
