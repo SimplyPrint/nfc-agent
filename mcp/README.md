@@ -1,33 +1,27 @@
 # NFC Agent MCP Server
 
-MCP (Model Context Protocol) server for the [NFC Agent](https://github.com/SimplyPrint/nfc-agent). Allows Claude Code and other MCP clients to read/write NFC cards, manage filament spools via SimplyPrint, and interact with whatt.io materials/products.
+MCP (Model Context Protocol) server for the [NFC Agent](https://github.com/SimplyPrint/nfc-agent).
+It lets Codex, T3 Code, Claude Code, and other MCP clients read/write NFC cards, manage
+filament spools through SimplyPrint, and interact with whatt.io materials/products.
 
 ## Quick Start
 
+Run the setup helper from any checkout location. It builds the local JavaScript SDK
+before the MCP, then derives the machine's own absolute path:
+
 ```bash
-cd mcp
-npm install
-npm run build
+node mcp/setup.mjs --runtime codex
+node mcp/setup.mjs --runtime claude --project-dir /path/to/consuming/repo
 ```
 
-Then add to your Claude Code MCP config (`~/.claude/config.json`):
+Use `--runtime both` to register both clients. Codex registration is personal and global;
+Claude Code's local registration belongs to `--project-dir`. Use `--replace` when this
+repository moved, after persisting any optional credentials outside the old MCP entry.
 
-```json
-{
-  "mcpServers": {
-    "nfc-agent": {
-      "command": "node",
-      "args": ["/path/to/nfc-agent/mcp/dist/index.js"],
-      "env": {
-        "NFC_AGENT_URL": "http://127.0.0.1:32145",
-        "SIMPLYPRINT_API_KEY": "your-key-here",
-        "SIMPLYPRINT_BASE_URL": "https://api.simplyprint.io/{org_id}",
-        "WHATTIO_TOKEN": "your-sanctum-token"
-      }
-    }
-  }
-}
-```
+An absolute `dist/index.js` path in personal runtime config is expected for a local STDIO
+process. Shared files must never contain one person's home directory, Dropbox layout, or
+Windows drive letter; every developer and machine runs `setup.mjs` to generate its own
+entry.
 
 ## Configuration
 
@@ -39,6 +33,16 @@ Then add to your Claude Code MCP config (`~/.claude/config.json`):
 | `SIMPLYPRINT_BASE_URL` | `https://api.simplyprint.io/0` | SimplyPrint API base URL including org ID |
 | `WHATTIO_TOKEN` | — | whatt.io Sanctum bearer token (enables `whattio_*` tools) |
 | `WHATTIO_TEAM_ID` | — | whatt.io team ID (optional) |
+
+The core NFC tools require no credential. `setup.mjs` supplies `NFC_AGENT_REPO_PATH` for
+the optional development tools. The other integrations are opt-in:
+
+- Generate `SIMPLYPRINT_API_KEY` in the intended SimplyPrint account's API settings and
+  use that account ID in `SIMPLYPRINT_BASE_URL`. Prefer a test account for development.
+- Generate `WHATTIO_TOKEN` with the whatt.io flow below.
+- Persist secrets in the operating system's user environment or another personal
+  credential store, then fully restart the agent application. Do not add them to this
+  repository or paste them into a shared setup command.
 
 ## Tools
 
