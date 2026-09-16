@@ -50,8 +50,13 @@ func listPCSCReaders() []Reader {
 		logging.Debug(logging.CatReader, "No readers found", map[string]any{
 			"error": err.Error(),
 		})
-		return []Reader{}
+		// A reader assigned to a custom Windows PC/SC group can make the
+		// default-group query fail even though the reader is available.
+		err = nil
+		readerNames = []string{}
 	}
+
+	readerNames = appendCustomReader(readerNames)
 
 	readers := make([]Reader, 0, len(readerNames))
 	readerIndex := 0
@@ -72,6 +77,18 @@ func listPCSCReaders() []Reader {
 	}
 
 	return readers
+}
+
+func appendCustomReader(readerNames []string) []string {
+	const customReaderName = "ASK LoGO 0"
+
+	for _, name := range readerNames {
+		if name == customReaderName {
+			return readerNames
+		}
+	}
+
+	return append(readerNames, customReaderName)
 }
 
 // detectReaderType determines if a reader is a PICC or SAM interface based on its name.
