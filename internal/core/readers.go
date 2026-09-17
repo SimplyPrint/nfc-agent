@@ -46,17 +46,26 @@ func listPCSCReaders() []Reader {
 
 	readerNames, err := ctx.ListReaders()
 	if err != nil {
-		// This is normal when no readers are connected, log at debug level
 		logging.Debug(logging.CatReader, "No readers found", map[string]any{
 			"error": err.Error(),
 		})
-		// A reader assigned to a custom Windows PC/SC group can make the
-		// default-group query fail even though the reader is available.
-		err = nil
 		readerNames = []string{}
+		err = nil
 	}
 
-	readerNames = appendCustomReader(readerNames)
+	for _, customReader := range listCustomGroupReaders() {
+		duplicate := false
+		for _, readerName := range readerNames {
+			if readerName == customReader {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			readerNames = append(readerNames, customReader)
+		}
+	}
+	err = nil
 
 	readers := make([]Reader, 0, len(readerNames))
 	readerIndex := 0
@@ -77,18 +86,6 @@ func listPCSCReaders() []Reader {
 	}
 
 	return readers
-}
-
-func appendCustomReader(readerNames []string) []string {
-	const customReaderName = "ASK LoGO 0"
-
-	for _, name := range readerNames {
-		if name == customReaderName {
-			return readerNames
-		}
-	}
-
-	return append(readerNames, customReaderName)
 }
 
 // detectReaderType determines if a reader is a PICC or SAM interface based on its name.

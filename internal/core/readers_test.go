@@ -128,44 +128,6 @@ func TestReaderStruct(t *testing.T) {
 	}
 }
 
-func TestAppendCustomReader(t *testing.T) {
-	tests := []struct {
-		name          string
-		readerNames   []string
-		expectedNames []string
-	}{
-		{
-			name:          "appends to an empty list",
-			readerNames:   []string{},
-			expectedNames: []string{"ASK LoGO 0"},
-		},
-		{
-			name:          "appends to existing readers",
-			readerNames:   []string{"ACS ACR122U PICC Interface"},
-			expectedNames: []string{"ACS ACR122U PICC Interface", "ASK LoGO 0"},
-		},
-		{
-			name:          "does not duplicate the custom reader",
-			readerNames:   []string{"ASK LoGO 0"},
-			expectedNames: []string{"ASK LoGO 0"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := appendCustomReader(tt.readerNames)
-			if len(result) != len(tt.expectedNames) {
-				t.Fatalf("appendCustomReader() returned %d readers, want %d", len(result), len(tt.expectedNames))
-			}
-			for i, name := range tt.expectedNames {
-				if result[i] != name {
-					t.Errorf("reader[%d] = %q, want %q", i, result[i], name)
-				}
-			}
-		})
-	}
-}
-
 func TestDetectReaderType_CommonManufacturers(t *testing.T) {
 	// Test various manufacturers that are commonly used
 	manufacturers := []struct {
