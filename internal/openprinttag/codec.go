@@ -296,9 +296,11 @@ func (m *MainSection) toKeyValuePairs() []keyValue {
 	}
 
 	// Material classification (keys 8-11)
-	// Note: MaterialClass and MaterialType are included even if 0 (FFF/PLA)
-	kv = append(kv, keyValue{8, uint8(m.MaterialClass)})
-	kv = append(kv, keyValue{9, uint8(m.MaterialType)})
+	// Note: MaterialClass is included even if 0 (FFF); MaterialType whenever set (0 = PLA)
+	kv = append(kv, keyValue{8, uint16(m.MaterialClass)})
+	if m.MaterialType != nil {
+		kv = append(kv, keyValue{9, uint16(*m.MaterialType)})
+	}
 	if m.MaterialName != "" {
 		kv = append(kv, keyValue{10, m.MaterialName})
 	}
@@ -485,13 +487,22 @@ func (i *Input) ToOpenPrintTag() (*OpenPrintTag, error) {
 	opt.Main.MaterialName = i.MaterialName
 	opt.Main.BrandName = i.BrandName
 	opt.Main.MaterialClass = MaterialClass(i.MaterialClass)
-	opt.Main.MaterialType = MaterialType(i.MaterialType)
+	m, err := i.resolveMaterial()
+	if err != nil {
+		return nil, err
+	}
+	opt.Main.MaterialType = m.materialType
+	if len(m.tags) > 0 {
+		opt.Main.Tags = m.tags
+	}
 	opt.Main.NominalNettoFullWeight = i.NominalWeight
 	opt.Main.FilamentDiameter = i.FilamentDiameter
 	opt.Main.Density = i.Density
 	opt.Main.GTIN = i.GTIN
-	opt.Main.BrandSpecificInstanceID = i.BrandSpecificInstID
-	opt.Main.BrandSpecificPackageID = i.BrandSpecificPkgID
+	opt.Main.BrandSpecificInstanceID = i.BrandSpecificInstanceID
+	opt.Main.BrandSpecificPackageID = i.BrandSpecificPackageID
+	opt.Main.BrandSpecificMaterialID = i.BrandSpecificMaterialID
+	opt.Main.MaterialAbbreviation = i.MaterialAbbreviation
 	opt.Main.ActualNettoFullWeight = i.ActualWeight
 	opt.Main.EmptyContainerWeight = i.SpoolWeight
 	opt.Main.MinPrintTemp = i.MinPrintTemp
@@ -500,6 +511,7 @@ func (i *Input) ToOpenPrintTag() (*OpenPrintTag, error) {
 	opt.Main.MinBedTemp = i.MinBedTemp
 	opt.Main.MaxBedTemp = i.MaxBedTemp
 	opt.Main.MinChamberTemp = i.MinChamberTemp
+	opt.Main.MaxChamberTemp = i.MaxChamberTemp
 	opt.Main.ChamberTemp = i.ChamberTemp
 	opt.Main.ContainerWidth = i.ContainerWidth
 	opt.Main.ContainerOuterDiameter = i.ContainerOuterDiam
@@ -600,10 +612,14 @@ func GenerateBrandUUID(brandName string) []byte {
 // GenerateMaterialUUID creates a UUIDv5 for material identification.
 // Per OpenPrintTag spec: uuid5(materialNamespace, brand_uuid + material_name)
 func GenerateMaterialUUID(brandName, materialName string) []byte {
-	// First get brand UUID
-	brandUUID := GenerateBrandUUID(brandName)
+	return generateMaterialUUIDFromBrand(GenerateBrandUUID(brandName), materialName)
+}
+
+// generateMaterialUUIDFromBrand derives material_uuid from an already-resolved
+// brand_uuid, which may be stored explicitly on the tag rather than derived.
+func generateMaterialUUIDFromBrand(brandUUID []byte, materialName string) []byte {
 	// Concatenate brand_uuid (binary) + material_name
-	data := append(brandUUID, []byte(materialName)...)
+	data := append(append([]byte{}, brandUUID...), []byte(materialName)...)
 	u := uuid.NewSHA1(materialNamespace, data)
 	return u[:]
 }
@@ -612,7 +628,7 @@ func GenerateMaterialUUID(brandName, materialName string) []byte {
 // Per OpenPrintTag spec: uuid5(packageNamespace, brand_uuid + gtin)
 func GeneratePackageUUID(brandUUID []byte, gtin string) []byte {
 	// Concatenate brand_uuid (binary) + gtin (as string)
-	data := append(brandUUID, []byte(gtin)...)
+	data := append(append([]byte{}, brandUUID...), []byte(gtin)...)
 	u := uuid.NewSHA1(packageNamespace, data)
 	return u[:]
 }

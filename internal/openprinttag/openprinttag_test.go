@@ -12,7 +12,7 @@ func TestEncodeDecodeRoundtrip(t *testing.T) {
 			MaterialName:           "PLA Pro",
 			BrandName:              "TestBrand",
 			MaterialClass:          MaterialClassFFF,
-			MaterialType:           MaterialTypePLA,
+			MaterialType:           mtPtr(MaterialTypePLA),
 			NominalNettoFullWeight: 1000.0,
 			FilamentDiameter:       1.75,
 			PrimaryColor:           []byte{0xFF, 0x57, 0x33},
@@ -55,8 +55,8 @@ func TestEncodeDecodeRoundtrip(t *testing.T) {
 	if decoded.Main.MaterialClass != original.Main.MaterialClass {
 		t.Errorf("MaterialClass mismatch: got %d, want %d", decoded.Main.MaterialClass, original.Main.MaterialClass)
 	}
-	if decoded.Main.MaterialType != original.Main.MaterialType {
-		t.Errorf("MaterialType mismatch: got %d, want %d", decoded.Main.MaterialType, original.Main.MaterialType)
+	if decoded.Main.MaterialType == nil || *decoded.Main.MaterialType != *original.Main.MaterialType {
+		t.Errorf("MaterialType mismatch: got %v, want %d", decoded.Main.MaterialType, *original.Main.MaterialType)
 	}
 	if decoded.Main.NominalNettoFullWeight != original.Main.NominalNettoFullWeight {
 		t.Errorf("NominalNettoFullWeight mismatch: got %f, want %f", decoded.Main.NominalNettoFullWeight, original.Main.NominalNettoFullWeight)
@@ -96,7 +96,7 @@ func TestInputToOpenPrintTag(t *testing.T) {
 		MaterialName:     "PETG",
 		BrandName:        "TestBrand",
 		MaterialClass:    0,
-		MaterialType:     2, // PETG
+		MaterialType:     json.RawMessage("2"), // PETG in the legacy numbering
 		NominalWeight:    750.0,
 		FilamentDiameter: 1.75,
 		PrimaryColor:     "#00FF00",
@@ -143,7 +143,7 @@ func TestInputEncode(t *testing.T) {
 		MaterialName:  "ABS",
 		BrandName:     "TestBrand",
 		MaterialClass: 0,
-		MaterialType:  1, // ABS
+		MaterialType:  json.RawMessage("1"), // ABS in the legacy numbering
 		NominalWeight: 500.0,
 	}
 
@@ -173,7 +173,7 @@ func TestToResponse(t *testing.T) {
 			MaterialName:           "TPU",
 			BrandName:              "FlexBrand",
 			MaterialClass:          MaterialClassFFF,
-			MaterialType:           MaterialTypeTPU,
+			MaterialType:           mtPtr(MaterialTypeTPU),
 			NominalNettoFullWeight: 500.0,
 			FilamentDiameter:       1.75,
 			PrimaryColor:           []byte{0x12, 0x34, 0x56, 0x78}, // RGBA
@@ -312,7 +312,8 @@ func TestMaterialTypeToString(t *testing.T) {
 		{MaterialTypeABS, "ABS"},
 		{MaterialTypePETG, "PETG"},
 		{MaterialTypeTPU, "TPU"},
-		{MaterialTypeOther, "Other"},
+		{MaterialTypePA6, "PA6"},
+		{MaterialTypePA612, "PA612"},
 		{MaterialType(200), "unknown(200)"},
 	}
 
@@ -330,7 +331,7 @@ func TestJSONRoundtrip(t *testing.T) {
 		MaterialName:     "PLA",
 		BrandName:        "TestBrand",
 		MaterialClass:    0,
-		MaterialType:     0,
+		MaterialType:     json.RawMessage("0"),
 		NominalWeight:    1000,
 		FilamentDiameter: 1.75,
 		PrimaryColor:     "#FF5733",
@@ -362,7 +363,7 @@ func TestEncodedSize(t *testing.T) {
 		MaterialName:     "PLA Pro High Quality Extra Long Name",
 		BrandName:        "Some Long Brand Name Here",
 		MaterialClass:    0,
-		MaterialType:     0,
+		MaterialType:     json.RawMessage("0"),
 		NominalWeight:    1000,
 		FilamentDiameter: 1.75,
 		PrimaryColor:     "#FF5733",

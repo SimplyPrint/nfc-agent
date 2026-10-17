@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -710,6 +711,59 @@ func TestIsMifareClassicATRFixtures(t *testing.T) {
 		}
 		if isMifareClassicATR(fx.ATR) && fx.DetectedType != "MIFARE Classic" {
 			t.Errorf("%s: ATR %s matches Classic but fixture was detected as %q", f, fx.ATR, fx.DetectedType)
+		}
+	}
+}
+
+// TestISO15693CapabilityContainer verifies the Type 5 CC chosen for writes:
+// an existing CC is kept, otherwise MLEN = (userBytes - 4) / 8.
+func TestISO15693CapabilityContainer(t *testing.T) {
+	tests := []struct {
+		name      string
+		existing  []byte
+		userBytes int
+		wantCC    []byte
+		wantWrite bool
+		wantArea  int
+		wantErr   bool
+	}{
+		{"blank SLIX2", []byte{0, 0, 0, 0}, 316, []byte{0xE1, 0x40, 0x27, 0x01}, true, 312, false},
+		{"blank SLIX/SLI", nil, 112, []byte{0xE1, 0x40, 0x0D, 0x01}, true, 104, false},
+		{"Prusament CC kept", []byte{0xE1, 0x40, 0x27, 0x01}, 316, []byte{0xE1, 0x40, 0x27, 0x01}, false, 312, false},
+		{"existing CC with other MLEN kept", []byte{0xE1, 0x40, 0x0D, 0x00}, 316, []byte{0xE1, 0x40, 0x0D, 0x00}, false, 104, false},
+		{"CC with MLEN 0 replaced", []byte{0xE1, 0x40, 0x00, 0x00}, 316, []byte{0xE1, 0x40, 0x27, 0x01}, true, 312, false},
+		{"unknown size", nil, 0, nil, false, 0, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cc, write, area, err := iso15693CapabilityContainer(tt.existing, tt.userBytes)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if string(cc) != string(tt.wantCC) || write != tt.wantWrite || area != tt.wantArea {
+				t.Errorf("got cc=%x write=%v area=%d, want cc=%x write=%v area=%d", cc, write, area, tt.wantCC, tt.wantWrite, tt.wantArea)
+			}
+		})
+	}
+}
+
+// TestOpenPrintTagUID verifies ISO 15693 UIDs (reported LSB-first by PC/SC)
+// are reversed to the MSB-first order used for instance_uuid derivation.
+func TestOpenPrintTagUID(t *testing.T) {
+	tests := []struct {
+		uid  string
+		want string
+	}{
+		{"bc6f2f66080104e0", "e0040108662f6fbc"}, // spec vector 01 tag, as PC/SC reports it
+		{"e0040108662f6fbc", "e0040108662f6fbc"}, // already MSB-first (e.g. Proxmark3)
+		{"04a1b2c3d4e5f6", "04a1b2c3d4e5f6"},     // NTAG 7-byte UID unchanged
+		{"3a5e53be", "3a5e53be"},                 // MIFARE Classic 4-byte UID unchanged
+		{"zz", ""},
+	}
+	for _, tt := range tests {
+		got := hex.EncodeToString(openPrintTagUID(&Card{UID: tt.uid}))
+		if got != tt.want {
+			t.Errorf("openPrintTagUID(%s) = %s, want %s", tt.uid, got, tt.want)
 		}
 	}
 }

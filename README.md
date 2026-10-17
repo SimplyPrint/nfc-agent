@@ -699,25 +699,35 @@ When reading a card with OpenPrintTag data (MIME type `application/vnd.openprint
 
 ```json
 {
-  "uid": "04:A2:B3:C4:D5:E6:07",
-  "type": "NTAG215",
-  "protocol": "NFC-A",
-  "protocolISO": "ISO 14443-3A",
+  "uid": "bc6f2f66080104e0",
+  "type": "ICode SLIX2",
+  "protocol": "NFC-V",
+  "protocolISO": "ISO 15693",
   "dataType": "openprinttag",
   "data": {
-    "materialName": "PLA Galaxy Black",
+    "materialName": "PETG Jet Black",
     "brandName": "Prusament",
     "materialClass": "FFF",
-    "materialType": "PLA",
-    "primaryColor": "#1A1A1A",
+    "materialType": "PETG",
+    "materialTypeId": 1,
+    "brandUuid": "ae5ff34e-298e-50c9-8f77-92a97fb30b09",
+    "materialUuid": "1378e978-35ed-534c-9dfa-a65525bf8649",
+    "packageUuid": "6f957b59-9725-5068-9102-15bb77807534",
+    "instanceUuid": "…",
+    "gtin": 8594173675100,
+    "primaryColor": "#24292A",
     "nominalWeight": 1000,
-    "remainingWeight": 750,
-    "filamentDiameter": 1.75,
-    "minPrintTemp": 215,
-    "maxPrintTemp": 230
+    "actualWeight": 1050,
+    "spoolWeight": 280,
+    "minPrintTemp": 240,
+    "maxPrintTemp": 260
   }
 }
 ```
+
+- `materialType` is the spec abbreviation and `materialTypeId` the raw spec value (`material_type`, key 9). Both are omitted if the tag doesn't specify a type.
+- `tags` lists spec tag values (key 28), e.g. `31` = contains carbon fiber, `4` = abrasive.
+- UUIDs not stored on the tag are derived as the spec requires (UUIDv5 from brand name, brand UUID + material name, brand UUID + GTIN, and the tag UID). Factory tags such as Prusament don't store them.
 
 ### Writing OpenPrintTag Cards
 
@@ -733,7 +743,7 @@ curl -X POST http://127.0.0.1:32145/v1/readers/0/card \
       "materialName": "PLA Galaxy Black",
       "brandName": "Prusament",
       "materialClass": 0,
-      "materialType": 0,
+      "materialType": "PLA",
       "nominalWeight": 1000,
       "primaryColor": "#1A1A1A",
       "minPrintTemp": 215,
@@ -753,30 +763,57 @@ curl -X POST http://127.0.0.1:32145/v1/readers/0/card \
     "materialName": "PETG Orange",
     "brandName": "Prusa",
     "materialClass": 0,
-    "materialType": 2,
+    "materialType": "PETG",
     "nominalWeight": 1000
   }
 }
 ```
 
+On ISO 15693 tags (ICode SLIX/SLIX2) the agent keeps an existing capability container, or writes one sized to the tag (`E1 40 27 01` on SLIX2), and rejects messages that don't fit.
+
+### materialType
+
+`materialType` accepts:
+
+- **A name (recommended):** any spec abbreviation — `PLA`, `PETG`, `TPU`, `ABS`, `ASA`, `PC`, `PCTG`, `PP`, `PA6`, `PA11`, `PA12`, `PA66`, `CPE`, `TPE`, `HIPS`, `PHA`, `PET`, `PEI`, `PBT`, `PVB`, `PVA`, `PEKK`, `PEEK`, `BVOH`, `TPC`, `PPS`, `PPSU`, `PVC`, `PEBA`, `PVDF`, `PPA`, `PCL`, `PES`, `PMMA`, `POM`, `PPE`, `PS`, `PSU`, `TPI`, `SBS`, `OBC`, `EVA`, `PA612` — or one of the aliases `PA`/`Nylon` (written as PA12), `PA-CF`, `PA-GF`, `PLA-CF`, `PLA-GF`, `PETG-CF`, `PETG-GF` (base type plus the carbon/glass fiber and abrasive tags) and `Other` (type left unspecified). Case-insensitive.
+- **An integer (legacy):** the numbering used by earlier nfc-agent versions, kept for backward compatibility and translated to the spec value on write: 0=PLA, 1=ABS, 2=PETG, 3=ASA, 4=PC, 5=Nylon, 6=TPU, 7=PVA, 8=HIPS, 9=PP, 10=PEI, 11=PEEK, 12=PA, 13=PA-CF, 14=PA-GF, 15=PLA-CF, 16=PLA-GF, 17=PETG-CF, 18=PETG-GF, 255=Other.
+
+To pass a raw spec value instead, use `materialTypeId` (e.g. `"materialTypeId": 21` for PEKK); it takes precedence over `materialType`. Omitting both writes PLA, as before.
+
 ### OpenPrintTag Fields
+
+Write fields (read responses use the same names, plus `remainingWeight`, `filamentLength` and the derived UUIDs):
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `materialName` | string | Material display name (required) |
 | `brandName` | string | Brand/manufacturer name (required) |
+| `nominalWeight` | float | Nominal net weight in grams (required) |
 | `materialClass` | int | 0 = FFF (filament), 1 = SLA (resin) |
-| `materialType` | int | Material type (0=PLA, 1=ABS, 2=PETG, etc.) |
-| `nominalWeight` | float | Nominal weight in grams (required) |
+| `materialType` | string / int | Material type, see above |
+| `materialTypeId` | int | Raw spec material_type value |
+| `tags` | int[] | Extra spec tag values |
+| `materialAbbreviation` | string | e.g. "PACF" |
+| `gtin` | int | GTIN / EAN product code |
+| `brandSpecificInstanceId` | string | Brand's own spool ID |
+| `brandSpecificPackageId` | string | Brand's own product ID |
+| `brandSpecificMaterialId` | string | Brand's own material ID |
+| `instanceUuid`, `packageUuid`, `materialUuid`, `brandUuid` | string | Override the generated UUIDs |
 | `primaryColor` | string | Hex color code (#RRGGBB or #RRGGBBAA) |
-| `filamentDiameter` | float | Diameter in mm (default: 1.75) |
+| `filamentDiameter` | float | Diameter in mm |
 | `density` | float | Material density in g/cm³ |
-| `minPrintTemp` | int | Minimum print temperature °C |
-| `maxPrintTemp` | int | Maximum print temperature °C |
-| `manufacturedDate` | int | Unix timestamp |
-| `expirationDate` | int | Unix timestamp |
+| `actualWeight` | float | Actual net weight in grams |
+| `spoolWeight` | float | Empty spool weight in grams |
+| `consumedWeight` | float | Consumed weight in grams (aux section) |
+| `nominalFullLength`, `actualFullLength` | int | Filament length in mm |
+| `minPrintTemp`, `maxPrintTemp`, `preheatTemp` | int | Nozzle temperatures °C |
+| `minBedTemp`, `maxBedTemp` | int | Bed temperatures °C |
+| `minChamberTemp`, `maxChamberTemp`, `chamberTemp` | int | Chamber temperatures °C |
+| `containerWidth`, `containerOuterDiam`, `containerInnerDiam`, `containerHoleDiam` | int | Spool dimensions in mm |
+| `manufacturedDate`, `expirationDate` | int | Unix timestamp |
+| `workgroup` | string | Aux section workgroup |
 
-See the [OpenPrintTag specification](https://openprinttag.org) for the complete field reference.
+See the [OpenPrintTag specification](https://specs.openprinttag.org) for the complete field reference.
 
 ## Building from Source
 

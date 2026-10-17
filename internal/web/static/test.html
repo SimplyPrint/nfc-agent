@@ -1321,7 +1321,7 @@
                     materialName: "PLA",
                     brandName: "Generic",
                     materialClass: 0,
-                    materialType: 0,
+                    materialType: "PLA",
                     nominalWeight: 1000,
                     filamentDiameter: 1.75,
                     primaryColor: "#FFFFFF"
@@ -1347,10 +1347,7 @@
                 if (opt.materialName) html += `<div><strong>Material:</strong> ${escapeHtml(opt.materialName)}</div>`;
                 if (opt.brandName) html += `<div><strong>Brand:</strong> ${escapeHtml(opt.brandName)}</div>`;
                 if (opt.materialClass !== undefined) html += `<div><strong>Class:</strong> ${opt.materialClass === 0 ? 'FFF' : opt.materialClass === 1 ? 'SLA' : opt.materialClass}</div>`;
-                if (opt.materialType !== undefined) {
-                    const types = ['PLA', 'ABS', 'PETG', 'ASA', 'PC', 'Nylon', 'TPU', 'PVA', 'HIPS', 'PP'];
-                    html += `<div><strong>Type:</strong> ${types[opt.materialType] || opt.materialType}</div>`;
-                }
+                if (opt.materialType !== undefined) html += `<div><strong>Type:</strong> ${escapeHtml(String(opt.materialType))}</div>`;
                 if (opt.nominalWeight) html += `<div><strong>Nominal Weight:</strong> ${opt.nominalWeight}g</div>`;
                 if (opt.consumedWeight !== undefined) html += `<div><strong>Consumed:</strong> ${opt.consumedWeight}g</div>`;
                 if (opt.remainingWeight !== undefined) html += `<div><strong>Remaining:</strong> ${opt.remainingWeight}g</div>`;

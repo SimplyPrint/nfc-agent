@@ -64,7 +64,7 @@ curl -X POST http://127.0.0.1:32145/v1/readers/0/card \
       "brandName": "Prusament",
       "nominalWeight": 1000,
       "materialClass": 0,
-      "materialType": 0,
+      "materialType": "PLA",
       "primaryColor": "#1A1A1A",
       "minPrintTemp": 215,
       "maxPrintTemp": 230
@@ -72,7 +72,9 @@ curl -X POST http://127.0.0.1:32145/v1/readers/0/card \
   }'
 ```
 
-**materialType values:** 0=PLA, 1=ABS, 2=PETG, 3=TPU, 4=ASA, 5=PA (Nylon), 6=PC, 7=Carbon fiber composite, 8=HIPS, 9=PVA, 10=Other
+**materialType:** pass a spec name (`"PETG"`, `"PA6"`, aliases `"PA-CF"` etc.) — see README.md "materialType". Integers are the legacy nfc-agent numbering (0=PLA, 1=ABS, 2=PETG, …), kept for compatibility and translated to spec values; `materialTypeId` takes a raw spec value. Tags are always decoded with the spec enum (`data/material_type_enum.yaml`: 0=PLA, 1=PETG, 2=TPU, 3=ABS, 4=ASA, 5=PC, …).
+
+**ICode SLIX2 layout:** CC `E1 40 27 01` at block 0 (MLEN 39 → 312-byte NDEF area; 316 bytes user memory, block 79 is the counter), NDEF TLV from block 1. Factory Prusament tags don't store UUIDs; the agent derives them on read.
 
 ---
 
