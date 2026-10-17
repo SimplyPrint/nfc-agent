@@ -69,11 +69,17 @@ const (
 	// uncertainCacheTTL is how long a best-guess result stays cached before the
 	// card is re-detected, so a wrong guess doesn't stick until restart.
 	uncertainCacheTTL = 10 * time.Second
+	// uncertainResetAfter forgets earlier uncertain attempts for a UID once it
+	// hasn't been seen for this long (e.g. the card was taken away), so a few
+	// brief taps spread over time don't lock in a best guess. Longer than the
+	// TTL so a card that stays on the reader is re-cached straight away.
+	uncertainResetAfter = uncertainCacheTTL + 5*time.Second
 )
 
 type uncertainDetection struct {
-	attempts int
-	expires  time.Time // zero until a best-guess result has been cached
+	attempts    int
+	lastAttempt time.Time
+	expires     time.Time // zero until a best-guess result has been cached
 }
 
 // lookupCachedDetection returns the cached detection result for uid, dropping
@@ -103,10 +109,11 @@ func shouldCacheDetection(uid string, confident bool, now time.Time) bool {
 		return true
 	}
 	u, ok := uncertainDetections[uid]
-	if !ok {
+	if !ok || now.Sub(u.lastAttempt) > uncertainResetAfter {
 		u = &uncertainDetection{}
 		uncertainDetections[uid] = u
 	}
+	u.lastAttempt = now
 	u.attempts++
 	if u.attempts < maxUncertainDetections {
 		return false
@@ -177,15 +184,25 @@ func GetCardUID(readerName string) (*Card, error) {
 		return nil, fmt.Errorf("failed to establish context: %w", err)
 	}
 	// Closures so the handles replaced during the reconnect fallback below
-	// are the ones released, not the originals captured at defer time.
-	defer func() { ctx.Release() }()
+	// are the ones released (once), not the originals captured at defer time.
+	ctxReleased := false
+	defer func() {
+		if !ctxReleased {
+			ctx.Release()
+		}
+	}()
 
 	// Connect to the reader
 	card, err := ctx.Connect(readerName, scard.ShareShared, scard.ProtocolAny)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to reader: %w", err)
 	}
-	defer func() { card.Disconnect(scard.LeaveCard) }()
+	cardClosed := false
+	defer func() {
+		if !cardClosed {
+			card.Disconnect(scard.LeaveCard)
+		}
+	}()
 
 	// Get the ATR (Answer To Reset)
 	status, err := card.Status()
@@ -262,6 +279,7 @@ func GetCardUID(readerName string) (*Card, error) {
 		if !confident && len(atrHex) >= 30 && contains(atrHex, "03060300") {
 			logging.Debug(logging.CatCard, "Detection uncertain, trying full reconnect for memory probe", nil)
 			card.Disconnect(scard.ResetCard)
+			cardClosed = true
 			cardValid = false
 
 			// Fresh connect - on Windows, may need to release and re-establish context
@@ -274,9 +292,11 @@ func GetCardUID(readerName string) (*Card, error) {
 				})
 				// Try with a completely fresh context
 				ctx.Release()
+				ctxReleased = true
 				newCtx, ctxErr := scard.EstablishContext()
 				if ctxErr == nil {
 					ctx = newCtx
+					ctxReleased = false
 					newCard, connectErr = ctx.Connect(readerName, scard.ShareShared, scard.ProtocolAny)
 				} else {
 					connectErr = ctxErr
@@ -285,6 +305,7 @@ func GetCardUID(readerName string) (*Card, error) {
 
 			if connectErr == nil && newCard != nil {
 				card = newCard
+				cardClosed = false
 				cardValid = true
 				// Try memory probe only (skip GET_VERSION which corrupts state)
 				if probeNTAGMemory(card, cardInfo) {
@@ -307,7 +328,8 @@ func GetCardUID(readerName string) (*Card, error) {
 		// don't cache so next poll can retry with a fresh detection - but only
 		// a few times, so a card that never detects confidently doesn't keep
 		// the reader in a constant reset/probe loop.
-		if shouldCacheDetection(uidHex, confident, time.Now()) {
+		// Attempts where the card handle was lost (card likely removed) aren't counted.
+		if cardValid && shouldCacheDetection(uidHex, confident, time.Now()) {
 			if !confident {
 				logging.Debug(logging.CatCard, "Detection still uncertain, caching best guess", map[string]any{
 					"uid":  uidHex,
@@ -1495,6 +1517,9 @@ func readMifareClassicBlock(card *scard.Card, blockNum int, lastAuthSector *int)
 	rsp, err := card.Transmit(readCmd)
 	if err != nil {
 		return nil, err
+	}
+	if len(rsp) < 2 {
+		return nil, fmt.Errorf("read failed: short response %x", rsp)
 	}
 	if len(rsp) < 18 || rsp[len(rsp)-2] != 0x90 {
 		return nil, fmt.Errorf("read failed: status %02X %02X", rsp[len(rsp)-2], rsp[len(rsp)-1])

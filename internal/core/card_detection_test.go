@@ -1,6 +1,9 @@
 package core
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -670,10 +673,43 @@ func TestUncertainDetectionCaching(t *testing.T) {
 		t.Fatal("confident detection should not expire")
 	}
 
+	// Attempts are forgotten once the card hasn't been seen for a while.
+	ClearCardCache(uid)
+	shouldCacheDetection(uid, false, later)
+	shouldCacheDetection(uid, false, later.Add(time.Second))
+	if shouldCacheDetection(uid, false, later.Add(time.Second+uncertainResetAfter+time.Second)) {
+		t.Fatal("attempt counter should reset after uncertainResetAfter without attempts")
+	}
+
 	// ClearCardCache resets the attempt counter.
 	shouldCacheDetection(uid, false, later)
 	ClearCardCache(uid)
 	if shouldCacheDetection(uid, false, later) {
 		t.Fatal("attempt counter should reset after ClearCardCache")
+	}
+}
+
+// TestIsMifareClassicATRFixtures checks the ATR rule against every captured
+// hardware fixture: only cards recorded as MIFARE Classic may match.
+func TestIsMifareClassicATRFixtures(t *testing.T) {
+	files, err := filepath.Glob(filepath.Join("testdata", "*", "*.json"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no fixtures found: %v", err)
+	}
+	for _, f := range files {
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fx struct {
+			ATR          string `json:"atr"`
+			DetectedType string `json:"detected_type"`
+		}
+		if err := json.Unmarshal(raw, &fx); err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
+		if isMifareClassicATR(fx.ATR) && fx.DetectedType != "MIFARE Classic" {
+			t.Errorf("%s: ATR %s matches Classic but fixture was detected as %q", f, fx.ATR, fx.DetectedType)
+		}
 	}
 }
