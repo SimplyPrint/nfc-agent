@@ -957,6 +957,7 @@ func WriteDataWithURL(readerName string, data []byte, dataType string, url strin
 
 	// Detect card type to determine write method
 	cardInfo := &Card{
+		UID: readConnectedCardUID(card),
 		ATR: hex.EncodeToString(status.Atr),
 	}
 	detectCardType(card, cardInfo)
@@ -1002,7 +1003,7 @@ func WriteDataWithURL(readerName string, data []byte, dataType string, url strin
 			return fmt.Errorf("failed to write NDEF message: %w", err)
 		}
 	} else if cardInfo.Protocol == "NFC-V" {
-		if err := writeISO15693NDEF(card, cardInfo.Size, ndefMessage); err != nil {
+		if err := writeISO15693NDEF(card, iso15693UserBytes(cardInfo), ndefMessage); err != nil {
 			return fmt.Errorf("failed to write NDEF message: %w", err)
 		}
 	} else {
@@ -1534,31 +1535,68 @@ func readMifareClassicBlock(card *scard.Card, blockNum int, lastAuthSector *int)
 
 // readNTAGPage reads a single 4-byte page from an NTAG card
 // Uses fallback to ACR122U direct transmit if standard command fails
+// readConnectedCardUID returns the UID of the card on an open connection as
+// lowercase hex, or "" if it can't be read. Detection needs it to tell ICode
+// SLI/SLIX/SLIX2 (and their memory sizes) apart.
+func readConnectedCardUID(card *scard.Card) string {
+	rsp, err := card.Transmit([]byte{0xFF, 0xCA, 0x00, 0x00, 0x00})
+	if err != nil || len(rsp) < 3 || rsp[len(rsp)-2] != 0x90 || rsp[len(rsp)-1] != 0x00 {
+		return ""
+	}
+	return hex.EncodeToString(rsp[:len(rsp)-2])
+}
+
+// iso15693UserBytes returns the user memory size of an identified ICode tag,
+// or 0 when it isn't known (generic "ISO 15693" sizes are only a guess).
+func iso15693UserBytes(cardInfo *Card) int {
+	switch cardInfo.Type {
+	case "ICode SLI", "ICode SLIX", "ICode SLIX2":
+		return cardInfo.Size
+	}
+	return 0
+}
+
+// maxISO15693AreaBytes keeps NDEF writes within blocks 1-255, the range the
+// single-byte block address in writeNTAGPages can reach.
+const maxISO15693AreaBytes = 255 * 4
+
 // iso15693CapabilityContainer decides which NFC Forum Type 5 capability
 // container (CC, block 0) to use and how many bytes of NDEF area follow it.
 // A valid CC already on the tag is kept, so factory-formatted tags (e.g.
-// Prusament) and their access bits are left alone. Otherwise one is built
-// from the tag's user memory size: MLEN = (userBytes - 4) / 8, because the
-// T5T area excludes the 4-byte CC. 0x01 = MBREAD (Read Multiple Blocks).
+// Prusament) and their access bits are left alone; its size is still capped
+// to the known user memory. Otherwise one is built from the tag's user memory
+// size: MLEN = (userBytes - 4) / 8, because the T5T area excludes the 4-byte
+// CC. 0x01 = MBREAD (Read Multiple Blocks). userBytes 0 means unknown.
 func iso15693CapabilityContainer(existing []byte, userBytes int) (cc []byte, write bool, areaBytes int, err error) {
 	if len(existing) >= 4 && existing[0] == 0xE1 && existing[2] > 0 {
-		return existing[:4], false, int(existing[2]) * 8, nil
+		cc, areaBytes = existing[:4], int(existing[2])*8
+	} else {
+		if userBytes <= 4 {
+			return nil, false, 0, fmt.Errorf("tag has no NDEF capability container and its memory size is unknown")
+		}
+		mlen := (userBytes - 4) / 8
+		if mlen > 255 {
+			mlen = 255
+		}
+		cc, write, areaBytes = []byte{0xE1, 0x40, byte(mlen), 0x01}, true, mlen*8
 	}
-	if userBytes <= 4 {
-		return nil, false, 0, fmt.Errorf("unknown ISO 15693 tag memory size")
+	if userBytes > 4 && areaBytes > userBytes-4 {
+		areaBytes = userBytes - 4
 	}
-	mlen := (userBytes - 4) / 8
-	if mlen > 255 {
-		mlen = 255
+	if areaBytes > maxISO15693AreaBytes {
+		areaBytes = maxISO15693AreaBytes
 	}
-	return []byte{0xE1, 0x40, byte(mlen), 0x01}, true, mlen * 8, nil
+	return cc, write, areaBytes, nil
 }
 
-// writeISO15693NDEF writes an NDEF TLV to an ISO 15693 (Type 5) tag: CC at
-// block 0 (only if missing), TLV from block 1, zero-filling the rest of the
-// NDEF area so leftover data from a longer previous message is erased.
+// writeISO15693NDEF writes an NDEF TLV to an ISO 15693 (Type 5) tag: TLV from
+// block 1, zero-filling the rest of the NDEF area so leftover data from a
+// longer previous message is erased, then the CC at block 0 if the tag had none.
 func writeISO15693NDEF(card *scard.Card, userBytes int, tlv []byte) error {
-	existing, _ := readNTAGPage(card, 0)
+	existing, err := readNTAGPage(card, 0)
+	if err != nil {
+		return fmt.Errorf("failed to read capability container: %w", err)
+	}
 	cc, writeCC, areaBytes, err := iso15693CapabilityContainer(existing, userBytes)
 	if err != nil {
 		return err
@@ -1566,13 +1604,16 @@ func writeISO15693NDEF(card *scard.Card, userBytes int, tlv []byte) error {
 	if len(tlv) > areaBytes {
 		return fmt.Errorf("NDEF message is %d bytes but the tag only has room for %d", len(tlv), areaBytes)
 	}
+	data := append(append([]byte{}, tlv...), make([]byte, areaBytes-len(tlv))...)
+	if err := writeNTAGPages(card, 1, data); err != nil {
+		return err
+	}
 	if writeCC {
 		if err := writeNTAGPages(card, 0, cc); err != nil {
 			return fmt.Errorf("failed to write capability container: %w", err)
 		}
 	}
-	data := append(append([]byte{}, tlv...), make([]byte, areaBytes-len(tlv))...)
-	return writeNTAGPages(card, 1, data)
+	return nil
 }
 
 func readNTAGPage(card *scard.Card, pageNum int) ([]byte, error) {
@@ -1630,6 +1671,9 @@ func readNTAGPage(card *scard.Card, pageNum int) ([]byte, error) {
 		}
 	}
 
+	if len(rsp) < 2 {
+		return nil, fmt.Errorf("read failed: short response %x", rsp)
+	}
 	return nil, fmt.Errorf("read failed with status: %02X %02X", rsp[len(rsp)-2], rsp[len(rsp)-1])
 }
 
@@ -2032,10 +2076,13 @@ func EraseCard(readerName string) error {
 	var totalUserBytes int
 	isNFCV := false
 	if statusErr == nil {
-		cardInfo := &Card{ATR: hex.EncodeToString(status.Atr)}
+		cardInfo := &Card{UID: readConnectedCardUID(card), ATR: hex.EncodeToString(status.Atr)}
 		detectCardType(card, cardInfo)
 		totalUserBytes = cardInfo.Size
 		isNFCV = cardInfo.Protocol == "NFC-V"
+		if isNFCV {
+			totalUserBytes = iso15693UserBytes(cardInfo)
+		}
 	}
 
 	// Write an empty NDEF message (just TLV header and terminator)
@@ -2349,7 +2396,7 @@ func WriteMultipleRecords(readerName string, records []NDEFRecord) error {
 	isISO15693 := contains(atr, "03060b")
 
 	// Detect card type for size info (used to zero-fill remaining pages)
-	cardInfo := &Card{ATR: atr}
+	cardInfo := &Card{UID: readConnectedCardUID(card), ATR: atr}
 	detectCardType(card, cardInfo)
 
 	// Build multi-record NDEF message
@@ -2414,7 +2461,7 @@ func WriteMultipleRecords(readerName string, records []NDEFRecord) error {
 	tlv = append(tlv, 0xFE)
 
 	if isISO15693 {
-		if err := writeISO15693NDEF(card, cardInfo.Size, tlv); err != nil {
+		if err := writeISO15693NDEF(card, iso15693UserBytes(cardInfo), tlv); err != nil {
 			return fmt.Errorf("failed to write NDEF records: %w", err)
 		}
 	} else {

@@ -378,6 +378,12 @@ func handleReaderCard(w http.ResponseWriter, r *http.Request, readerName string)
 				})
 				return
 			}
+			if err := input.Validate(); err != nil {
+				respondJSON(w, http.StatusBadRequest, map[string]string{
+					"error": "invalid openprinttag data: " + err.Error(),
+				})
+				return
+			}
 			dataBytes = []byte(req.Data)
 		default:
 			respondJSON(w, http.StatusBadRequest, map[string]string{

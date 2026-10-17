@@ -392,7 +392,9 @@ func (i *Input) resolveMaterial() (materialSpec, error) {
 		}
 		m = material(MaterialType(*i.MaterialTypeID))
 	case len(i.MaterialType) == 0 || string(i.MaterialType) == "null":
-		m = material(MaterialTypePLA) // pre-v0.8 default (missing int = 0 = PLA)
+		if MaterialClass(i.MaterialClass) == MaterialClassFFF {
+			m = material(MaterialTypePLA) // pre-v0.8 default (missing int = 0 = PLA)
+		} // material_type is only defined for FFF; leave it out for SLA
 	default:
 		var name string
 		var legacy int
@@ -425,6 +427,13 @@ func (i *Input) resolveMaterial() (materialSpec, error) {
 		}
 	}
 	return m, nil
+}
+
+// Validate reports input errors that would make ToOpenPrintTag fail, so API
+// handlers can reject bad requests before touching the card.
+func (i *Input) Validate() error {
+	_, err := i.resolveMaterial()
+	return err
 }
 
 // materialTypeByName looks up a spec abbreviation or alias, ignoring case,
@@ -566,10 +575,17 @@ func materialClassToString(mc MaterialClass) string {
 	}
 }
 
+// legacyOtherMaterialType is what nfc-agent wrote for "Other" before v0.8.
+// It isn't a spec value, so it can only come from those tags.
+const legacyOtherMaterialType MaterialType = 255
+
 // materialTypeToString converts a spec MaterialType value to its abbreviation
 func materialTypeToString(mt MaterialType) string {
 	if name, ok := materialTypeNames[mt]; ok {
 		return name
+	}
+	if mt == legacyOtherMaterialType {
+		return "Other"
 	}
 	return fmt.Sprintf("unknown(%d)", mt)
 }

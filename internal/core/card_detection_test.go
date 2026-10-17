@@ -732,7 +732,11 @@ func TestISO15693CapabilityContainer(t *testing.T) {
 		{"Prusament CC kept", []byte{0xE1, 0x40, 0x27, 0x01}, 316, []byte{0xE1, 0x40, 0x27, 0x01}, false, 312, false},
 		{"existing CC with other MLEN kept", []byte{0xE1, 0x40, 0x0D, 0x00}, 316, []byte{0xE1, 0x40, 0x0D, 0x00}, false, 104, false},
 		{"CC with MLEN 0 replaced", []byte{0xE1, 0x40, 0x00, 0x00}, 316, []byte{0xE1, 0x40, 0x27, 0x01}, true, 312, false},
-		{"unknown size", nil, 0, nil, false, 0, true},
+		{"unknown size, no CC", nil, 0, nil, false, 0, true},
+		{"unknown size, existing CC trusted", []byte{0xE1, 0x40, 0x27, 0x01}, 0, []byte{0xE1, 0x40, 0x27, 0x01}, false, 312, false},
+		{"oversized CC capped to SLIX2 memory", []byte{0xE1, 0x40, 0x40, 0x00}, 316, []byte{0xE1, 0x40, 0x40, 0x00}, false, 312, false},
+		{"oversized CC capped to SLIX memory", []byte{0xE1, 0x40, 0x7F, 0x01}, 112, []byte{0xE1, 0x40, 0x7F, 0x01}, false, 108, false},
+		{"2KB CC capped to block 255", []byte{0xE1, 0x40, 0xFF, 0x01}, 0, []byte{0xE1, 0x40, 0xFF, 0x01}, false, 1020, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

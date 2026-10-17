@@ -193,6 +193,7 @@ func TestInputMaterialTypeCompat(t *testing.T) {
 		{name: "unknown name", input: `{"materialType":"Unobtainium"}`, wantErr: true},
 		{name: "spec id overrides", input: `{"materialType":2,"materialTypeId":21}`, wantType: intPtr(21)},
 		{name: "spec id out of range", input: `{"materialTypeId":70000}`, wantErr: true},
+		{name: "SLA without type omits it", input: `{"materialClass":1}`},
 		{name: "extra tags merged without duplicates", input: `{"materialType":"PETG-CF","tags":[4,5]}`, wantType: intPtr(1), wantTags: []uint16{31, 4, 5}},
 	}
 
@@ -248,4 +249,33 @@ func deref(p *int) any {
 		return nil
 	}
 	return *p
+}
+
+// TestLegacyOtherDecodes verifies tags written by pre-v0.8 agents with
+// materialType 255 ("Other") still read as "Other".
+func TestLegacyOtherDecodes(t *testing.T) {
+	if got := materialTypeToString(255); got != "Other" {
+		t.Errorf("materialTypeToString(255) = %q, want Other", got)
+	}
+	if got := materialTypeToString(200); got != "unknown(200)" {
+		t.Errorf("materialTypeToString(200) = %q, want unknown(200)", got)
+	}
+}
+
+// TestInputValidate verifies bad material types are caught before writing.
+func TestInputValidate(t *testing.T) {
+	for _, raw := range []string{`{"materialType":"Foo"}`, `{"materialType":-1}`, `{"materialType":true}`, `{"materialTypeId":-5}`} {
+		var in Input
+		if err := json.Unmarshal([]byte(raw), &in); err != nil {
+			t.Fatal(err)
+		}
+		if in.Validate() == nil {
+			t.Errorf("Validate(%s) = nil, want error", raw)
+		}
+	}
+	var ok Input
+	_ = json.Unmarshal([]byte(`{"materialType":2}`), &ok)
+	if err := ok.Validate(); err != nil {
+		t.Errorf("Validate(legacy 2) = %v", err)
+	}
 }

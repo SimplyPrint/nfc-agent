@@ -530,6 +530,10 @@ func (c *WSClient) handleWriteCard(id string, payload json.RawMessage) {
 			c.sendError(id, "invalid openprinttag JSON format: "+err.Error())
 			return
 		}
+		if err := input.Validate(); err != nil {
+			c.sendError(id, "invalid openprinttag data: "+err.Error())
+			return
+		}
 		dataBytes = []byte(req.Data)
 	default:
 		c.sendError(id, "invalid dataType (must be 'text', 'json', 'binary', 'url', or 'openprinttag')")
