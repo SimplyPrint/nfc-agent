@@ -1,8 +1,12 @@
 package core
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 )
 
 // TestCardTypeDetection tests that card types are correctly identified
@@ -597,4 +601,115 @@ func hexEncodeString(b []byte) string {
 		result[i*2+1] = hexChars[v&0x0f]
 	}
 	return string(result)
+}
+
+// TestIsMifareClassicATR verifies Classic cards are identified from the ATR
+// card name before any GET_VERSION / memory probe commands are sent.
+// Regression: Bambu Lab tags (Classic 1K, non-default keys) on ACR1552 fell
+// through to the memory probe, were never cached, and were re-probed with
+// reader resets on every poll.
+func TestIsMifareClassicATR(t *testing.T) {
+	tests := []struct {
+		name string
+		atr  string
+		want bool
+	}{
+		{"Classic 1K (ACR1552/ACR122U, Bambu Lab)", "3b8f8001804f0ca000000306030001000000006a", true},
+		{"Classic 4K", "3b8f8001804f0ca0000003060300020000000069", true},
+		{"MIFARE Mini", "3b8f8001804f0ca000000306030026000000004d", true},
+		{"NTAG/Ultralight", "3b8f8001804f0ca0000003060300030000000068", false},
+		{"ICode SLIX", "3b8f8001804f0ca0000003060b00140000000077", false},
+		{"Too short", "3b8f8001", false},
+		{"Non-storage ATR", "3b8180018080", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isMifareClassicATR(tt.atr); got != tt.want {
+				t.Errorf("isMifareClassicATR(%s) = %v, want %v", tt.atr, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestUncertainDetectionCaching verifies uncertain results are retried a few
+// times, then cached with a TTL so polling stops re-probing the card.
+func TestUncertainDetectionCaching(t *testing.T) {
+	ClearAllCardCache()
+	defer ClearAllCardCache()
+
+	const uid = "3a5e53be"
+	now := time.Now()
+	guess := &Card{UID: uid, Type: "MIFARE Ultralight"}
+
+	for i := 1; i < maxUncertainDetections; i++ {
+		if shouldCacheDetection(uid, false, now) {
+			t.Fatalf("uncertain attempt %d should not be cached", i)
+		}
+	}
+	if !shouldCacheDetection(uid, false, now) {
+		t.Fatalf("attempt %d should cache the best guess", maxUncertainDetections)
+	}
+	cardDetectionCache[uid] = guess
+
+	if c, ok := lookupCachedDetection(uid, now.Add(uncertainCacheTTL-time.Second)); !ok || c != guess {
+		t.Fatal("best guess should be served from cache within TTL")
+	}
+	if _, ok := lookupCachedDetection(uid, now.Add(uncertainCacheTTL+time.Second)); ok {
+		t.Fatal("best guess should expire after TTL")
+	}
+
+	// Still uncertain after expiry: cached again straight away (no retry burst).
+	later := now.Add(uncertainCacheTTL + time.Second)
+	if !shouldCacheDetection(uid, false, later) {
+		t.Fatal("repeatedly uncertain card should be re-cached after expiry")
+	}
+
+	// A confident detection clears the uncertain state and never expires.
+	if !shouldCacheDetection(uid, true, later) {
+		t.Fatal("confident detection should be cached")
+	}
+	cardDetectionCache[uid] = guess
+	if _, ok := lookupCachedDetection(uid, later.Add(time.Hour)); !ok {
+		t.Fatal("confident detection should not expire")
+	}
+
+	// Attempts are forgotten once the card hasn't been seen for a while.
+	ClearCardCache(uid)
+	shouldCacheDetection(uid, false, later)
+	shouldCacheDetection(uid, false, later.Add(time.Second))
+	if shouldCacheDetection(uid, false, later.Add(time.Second+uncertainResetAfter+time.Second)) {
+		t.Fatal("attempt counter should reset after uncertainResetAfter without attempts")
+	}
+
+	// ClearCardCache resets the attempt counter.
+	shouldCacheDetection(uid, false, later)
+	ClearCardCache(uid)
+	if shouldCacheDetection(uid, false, later) {
+		t.Fatal("attempt counter should reset after ClearCardCache")
+	}
+}
+
+// TestIsMifareClassicATRFixtures checks the ATR rule against every captured
+// hardware fixture: only cards recorded as MIFARE Classic may match.
+func TestIsMifareClassicATRFixtures(t *testing.T) {
+	files, err := filepath.Glob(filepath.Join("testdata", "*", "*.json"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no fixtures found: %v", err)
+	}
+	for _, f := range files {
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fx struct {
+			ATR          string `json:"atr"`
+			DetectedType string `json:"detected_type"`
+		}
+		if err := json.Unmarshal(raw, &fx); err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
+		if isMifareClassicATR(fx.ATR) && fx.DetectedType != "MIFARE Classic" {
+			t.Errorf("%s: ATR %s matches Classic but fixture was detected as %q", f, fx.ATR, fx.DetectedType)
+		}
+	}
 }
