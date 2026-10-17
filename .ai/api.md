@@ -101,6 +101,7 @@ curl -X POST http://127.0.0.1:32145/v1/readers/0/card \
 curl -X POST http://127.0.0.1:32145/v1/readers/0/card \
   -H "Content-Type: application/json" \
   -d '{"data":"{\"key\":\"value\"}","dataType":"json"}'
+# For dataType json/openprinttag, "data" may also be the JSON object itself (HTTP and WS write_card)
 
 # Write OpenPrintTag
 curl -X POST http://127.0.0.1:32145/v1/readers/0/card \
@@ -111,7 +112,7 @@ curl -X POST http://127.0.0.1:32145/v1/readers/0/card \
       "materialName": "PLA Galaxy Black",
       "brandName": "Prusament",
       "materialClass": 0,
-      "materialType": 0,
+      "materialType": "PLA",
       "nominalWeight": 1000,
       "primaryColor": "#1A1A1A",
       "minPrintTemp": 215,
@@ -593,7 +594,9 @@ When writing with `dataType:"openprinttag"`, the `data` field is a JSON object:
 | `brandName` | string | yes | Brand/manufacturer (e.g. "Prusament") |
 | `nominalWeight` | float | yes | Nominal weight in grams (e.g. 1000) |
 | `materialClass` | int | no | 0 = FFF/filament (default), 1 = SLA/resin |
-| `materialType` | int | no | 0=PLA, 1=ABS, 2=PETG, 3=TPU, 4=ASA, 5=PA, 6=PC, 7=Carbon fiber, 8=HIPS, 9=PVA, 10=Other |
+| `materialType` | string/int | no | Spec name (`"PETG"`, `"PA-CF"`, …) or legacy nfc-agent integer (0=PLA, 1=ABS, 2=PETG, 3=ASA, 4=PC, 5=Nylon, 6=TPU, 7=PVA, 8=HIPS, 9=PP, 10=PEI, 11=PEEK, 12=PA, 13–18=PA/PLA/PETG-CF/GF, 255=Other), translated to the spec value. Default PLA |
+| `materialTypeId` | int | no | Raw spec material_type value; overrides `materialType` |
+| `tags` | int[] | no | Extra spec tag values (key 28) |
 | `primaryColor` | string | no | Hex color (#RRGGBB or #RRGGBBAA) |
 | `filamentDiameter` | float | no | Diameter in mm (default: 1.75) |
 | `density` | float | no | Material density in g/cm³ |
@@ -601,6 +604,10 @@ When writing with `dataType:"openprinttag"`, the `data` field is a JSON object:
 | `maxPrintTemp` | int | no | Maximum print temp °C |
 | `manufacturedDate` | int | no | Unix timestamp |
 | `expirationDate` | int | no | Unix timestamp |
+
+More write fields (GTIN, brand-specific IDs, weights, lengths, bed/chamber temps, spool dimensions) and the read response format: see the OpenPrintTag section of README.md.
+
+Read responses return `materialType` as the spec abbreviation plus `materialTypeId` (raw value) and `tags`. UUIDs missing from the tag are derived per spec (brand, material, package from GTIN, instance from the tag UID).
 
 See full spec: https://specs.openprinttag.org/#/
 

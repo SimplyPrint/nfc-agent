@@ -1,10 +1,10 @@
 package core
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
 	"time"
 )
@@ -50,7 +50,7 @@ func TestCardTypeDetection(t *testing.T) {
 			name:         "ICode SLIX detection via ATR + UID",
 			cardType:     "ISO 15693",
 			expectedType: "ICode SLIX",
-			expectedSize: 896,
+			expectedSize: 112,
 		},
 		{
 			name:         "MIFARE Ultralight detection (GET_VERSION garbage rejected)",
@@ -426,83 +426,27 @@ func TestICodeSLIXDetection(t *testing.T) {
 	tests := []struct {
 		name         string
 		uid          string
-		atr          string
 		expectedType string
 		expectedSize int
+		expectedOK   bool
 	}{
-		{
-			name:         "ICode SLIX2 - bits (0,1)",
-			uid:          "80391566080104e0", // UID4=08: bit37=0, bit36=1 -> SLIX2
-			atr:          "3b8f8001804f0ca0000003060b00140000000077",
-			expectedType: "ICode SLIX2",
-			expectedSize: 320,
-		},
-		{
-			name:         "ICode SLIX - bits (1,0)",
-			uid:          "80391566100104e0", // UID4=10: bit37=1, bit36=0 -> SLIX
-			atr:          "3b8f8001804f0ca0000003060b00140000000077",
-			expectedType: "ICode SLIX",
-			expectedSize: 896,
-		},
-		{
-			name:         "ICode SLI - bits (0,0)",
-			uid:          "80391566000104e0", // UID4=00: bit37=0, bit36=0 -> SLI
-			atr:          "3b8f8001804f0ca0000003060b00140000000077",
-			expectedType: "ICode SLI",
-			expectedSize: 112,
-		},
-		{
-			name:         "Generic ISO 15693 (non-NXP)",
-			uid:          "8039156608010400", // Manufacturer != 0xE0
-			atr:          "3b8f8001804f0ca0000003060b00140000000077",
-			expectedType: "ISO 15693",
-			expectedSize: 1024,
-		},
+		{"ICode SLIX2 - bits (0,1)", "80391566080104e0", "ICode SLIX2", 316, true}, // UID4=08
+		{"ICode SLIX2 - spec vector 01 tag", "bc6f2f66080104e0", "ICode SLIX2", 316, true},
+		{"ICode SLIX - bits (1,0)", "80391566100104e0", "ICode SLIX", 112, true}, // UID4=10
+		{"ICode SLI - bits (0,0)", "80391566000104e0", "ICode SLI", 112, true},   // UID4=00
+		{"ST tag (manufacturer 02)", "80391566080102e0", "", 0, false},
+		{"TI tag (manufacturer 07)", "80391566080107e0", "", 0, false},
+		{"NXP non-ICODE family (NTAG 5)", "80391566080404e0", "", 0, false},
+		{"not ISO 15693 prefix", "8039156608010400", "", 0, false},
+		{"short UID", "3a5e53be", "", 0, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Check ATR contains ISO 15693 pattern
-			if !contains(tt.atr, "03060b") {
-				t.Fatal("ATR should contain ISO 15693 pattern '03060b'")
-			}
-
-			// Simulate the detection logic
-			var detectedType string
-			var detectedSize int
-			uid := tt.uid
-
-			if len(uid) >= 16 && uid[14:16] == "e0" {
-				// NXP ICode family - check type indicator bits
-				if len(uid) >= 10 {
-					uid4Byte, _ := strconv.ParseUint(uid[8:10], 16, 8)
-					bit37 := (uid4Byte >> 4) & 1
-					bit36 := (uid4Byte >> 3) & 1
-					switch {
-					case bit37 == 0 && bit36 == 1:
-						detectedType = "ICode SLIX2"
-						detectedSize = 320
-					case bit37 == 1 && bit36 == 0:
-						detectedType = "ICode SLIX"
-						detectedSize = 896
-					case bit37 == 0 && bit36 == 0:
-						detectedType = "ICode SLI"
-						detectedSize = 112
-					default:
-						detectedType = "ICode SLIX"
-						detectedSize = 896
-					}
-				}
-			} else {
-				detectedType = "ISO 15693"
-				detectedSize = 1024
-			}
-
-			if detectedType != tt.expectedType {
-				t.Errorf("expected type %s, got %s", tt.expectedType, detectedType)
-			}
-			if detectedSize != tt.expectedSize {
-				t.Errorf("expected size %d, got %d", tt.expectedSize, detectedSize)
+			typ, size, ok := icodeTypeFromUID(tt.uid)
+			if ok != tt.expectedOK || typ != tt.expectedType || size != tt.expectedSize {
+				t.Errorf("icodeTypeFromUID(%s) = (%q, %d, %v), want (%q, %d, %v)",
+					tt.uid, typ, size, ok, tt.expectedType, tt.expectedSize, tt.expectedOK)
 			}
 		})
 	}
@@ -710,6 +654,64 @@ func TestIsMifareClassicATRFixtures(t *testing.T) {
 		}
 		if isMifareClassicATR(fx.ATR) && fx.DetectedType != "MIFARE Classic" {
 			t.Errorf("%s: ATR %s matches Classic but fixture was detected as %q", f, fx.ATR, fx.DetectedType)
+		}
+	}
+}
+
+// TestISO15693CapabilityContainer verifies the Type 5 CC chosen for writes:
+// an existing CC is kept, otherwise MLEN = (userBytes - 4) / 8.
+func TestISO15693CapabilityContainer(t *testing.T) {
+	tests := []struct {
+		name      string
+		existing  []byte
+		userBytes int
+		wantCC    []byte
+		wantWrite bool
+		wantArea  int
+		wantErr   bool
+	}{
+		{"blank SLIX2", []byte{0, 0, 0, 0}, 316, []byte{0xE1, 0x40, 0x27, 0x01}, true, 312, false},
+		{"blank SLIX/SLI", nil, 112, []byte{0xE1, 0x40, 0x0D, 0x01}, true, 104, false},
+		{"Prusament CC kept", []byte{0xE1, 0x40, 0x27, 0x01}, 316, []byte{0xE1, 0x40, 0x27, 0x01}, false, 312, false},
+		{"existing CC with other MLEN kept", []byte{0xE1, 0x40, 0x0D, 0x00}, 316, []byte{0xE1, 0x40, 0x0D, 0x00}, false, 104, false},
+		{"CC with MLEN 0 replaced", []byte{0xE1, 0x40, 0x00, 0x00}, 316, []byte{0xE1, 0x40, 0x27, 0x01}, true, 312, false},
+		{"unknown size, no CC", nil, 0, nil, false, 0, true},
+		{"write-protected CC refused", []byte{0xE1, 0x43, 0x27, 0x01}, 316, nil, false, 0, true},
+		{"unknown size, existing CC trusted", []byte{0xE1, 0x40, 0x27, 0x01}, 0, []byte{0xE1, 0x40, 0x27, 0x01}, false, 312, false},
+		{"oversized CC capped to SLIX2 memory", []byte{0xE1, 0x40, 0x40, 0x00}, 316, []byte{0xE1, 0x40, 0x40, 0x00}, false, 312, false},
+		{"oversized CC capped to SLIX memory", []byte{0xE1, 0x40, 0x7F, 0x01}, 112, []byte{0xE1, 0x40, 0x7F, 0x01}, false, 108, false},
+		{"2KB CC capped to block 255", []byte{0xE1, 0x40, 0xFF, 0x01}, 0, []byte{0xE1, 0x40, 0xFF, 0x01}, false, 1020, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cc, write, area, err := iso15693CapabilityContainer(tt.existing, tt.userBytes)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if string(cc) != string(tt.wantCC) || write != tt.wantWrite || area != tt.wantArea {
+				t.Errorf("got cc=%x write=%v area=%d, want cc=%x write=%v area=%d", cc, write, area, tt.wantCC, tt.wantWrite, tt.wantArea)
+			}
+		})
+	}
+}
+
+// TestOpenPrintTagUID verifies ISO 15693 UIDs (reported LSB-first by PC/SC)
+// are reversed to the MSB-first order used for instance_uuid derivation.
+func TestOpenPrintTagUID(t *testing.T) {
+	tests := []struct {
+		uid  string
+		want string
+	}{
+		{"bc6f2f66080104e0", "e0040108662f6fbc"}, // spec vector 01 tag, as PC/SC reports it
+		{"e0040108662f6fbc", "e0040108662f6fbc"}, // already MSB-first (e.g. Proxmark3)
+		{"04a1b2c3d4e5f6", "04a1b2c3d4e5f6"},     // NTAG 7-byte UID unchanged
+		{"3a5e53be", "3a5e53be"},                 // MIFARE Classic 4-byte UID unchanged
+		{"zz", ""},
+	}
+	for _, tt := range tests {
+		got := hex.EncodeToString(openPrintTagUID(&Card{UID: tt.uid}))
+		if got != tt.want {
+			t.Errorf("openPrintTagUID(%s) = %s, want %s", tt.uid, got, tt.want)
 		}
 	}
 }

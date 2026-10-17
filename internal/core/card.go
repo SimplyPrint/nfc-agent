@@ -834,43 +834,10 @@ func detectCardType(card *scard.Card, cardInfo *Card) (confident bool) {
 		// Check for ISO 15693 cards (ICode SLI, ICode Slix, ICode Slix 2)
 		// Pattern: 03 06 0b at bytes 10-12 (hex string position 20-25)
 		if contains(atr, "03060b") {
-			// ISO 15693 family - check UID manufacturer byte to identify vendor
-			// For ISO 15693, the UID is 8 bytes with manufacturer code in last byte (reversed order)
-			// 0xE0 = NXP (ICode SLI/Slix/Slix-2)
-			uid := cardInfo.UID
-			if len(uid) >= 16 && uid[14:16] == "e0" {
-				// NXP ICode family - differentiate SLI/SLIX/SLIX2 using type indicator bits
-				// Per NXP datasheet (SL2S2602), UID4 (hex position 8-9) contains bits 40:33
-				// Bits 37 and 36 indicate the ICODE type:
-				//   Bit 37=0, Bit 36=0: ICODE SLI
-				//   Bit 37=1, Bit 36=0: ICODE SLIX
-				//   Bit 37=0, Bit 36=1: ICODE SLIX2
-				//   Bit 37=1, Bit 36=1: RFU
+			if typ, size, ok := icodeTypeFromUID(cardInfo.UID); ok {
+				cardInfo.Type = typ
+				cardInfo.Size = size
 				cardInfo.Writable = true
-				if len(uid) >= 10 {
-					uid4Byte, err := strconv.ParseUint(uid[8:10], 16, 8)
-					if err == nil {
-						bit37 := (uid4Byte >> 4) & 1 // bit 4 of the byte
-						bit36 := (uid4Byte >> 3) & 1 // bit 3 of the byte
-						switch {
-						case bit37 == 0 && bit36 == 1:
-							cardInfo.Type = "ICode SLIX2"
-							cardInfo.Size = 320 // SLIX2 has 2560 bits = 320 bytes
-							return true
-						case bit37 == 1 && bit36 == 0:
-							cardInfo.Type = "ICode SLIX"
-							cardInfo.Size = 896 // SLIX has 896 bytes
-							return true
-						case bit37 == 0 && bit36 == 0:
-							cardInfo.Type = "ICode SLI"
-							cardInfo.Size = 112 // SLI has 896 bits = 112 bytes
-							return true
-						}
-					}
-				}
-				// Fallback if we couldn't parse type bits
-				cardInfo.Type = "ICode SLIX"
-				cardInfo.Size = 896
 				return true
 			}
 			// Generic ISO 15693
@@ -912,6 +879,32 @@ func isMifareClassicATR(atr string) bool {
 		return true
 	}
 	return false
+}
+
+// icodeTypeFromUID identifies NXP ICODE SLI/SLIX/SLIX2 from an ISO 15693 UID
+// as reported by PC/SC (LSB-first hex, e.g. "80391566080104e0" = E0 04 01 ...):
+// E0 = ISO 15693, 04 = NXP manufacturer code, 01 = ICODE family. Other tags
+// (other vendors, NTAG 5, ...) return false. Per NXP SL2S2602, bits 37/36 of
+// the UID (in UID4) give the type; sizes are user memory in bytes.
+func icodeTypeFromUID(uid string) (typ string, size int, ok bool) {
+	if len(uid) != 16 || uid[14:16] != "e0" || uid[12:14] != "04" || uid[10:12] != "01" {
+		return "", 0, false
+	}
+	uid4, err := strconv.ParseUint(uid[8:10], 16, 8)
+	if err != nil {
+		return "", 0, false
+	}
+	bit37 := (uid4 >> 4) & 1
+	bit36 := (uid4 >> 3) & 1
+	switch {
+	case bit37 == 0 && bit36 == 1:
+		return "ICode SLIX2", 316, true // 79 user blocks x 4 bytes (block 79 is the counter)
+	case bit37 == 1 && bit36 == 0:
+		return "ICode SLIX", 112, true // 896 bits
+	case bit37 == 0 && bit36 == 0:
+		return "ICode SLI", 112, true // 896 bits
+	}
+	return "ICode SLIX", 112, true // RFU type bits: assume the smallest common size
 }
 
 // Helper function to check if a string contains a substring
@@ -957,11 +950,25 @@ func WriteDataWithURL(readerName string, data []byte, dataType string, url strin
 
 	// Detect card type to determine write method
 	cardInfo := &Card{
+		UID: readConnectedCardUID(card),
 		ATR: hex.EncodeToString(status.Atr),
 	}
 	detectCardType(card, cardInfo)
 
 	var ndefMessage []byte
+
+	if dataType == "openprinttag" && len(data) > 0 {
+		// Parse JSON input and encode to CBOR (also for the URL + data multi-record case)
+		var input openprinttag.Input
+		if err := json.Unmarshal(data, &input); err != nil {
+			return fmt.Errorf("invalid openprinttag JSON: %w", err)
+		}
+		cborPayload, err := input.Encode()
+		if err != nil {
+			return fmt.Errorf("failed to encode openprinttag: %w", err)
+		}
+		data = cborPayload
+	}
 
 	// If URL is provided and there's also data, create multi-record message
 	if url != "" && len(data) > 0 {
@@ -981,16 +988,7 @@ func WriteDataWithURL(readerName string, data []byte, dataType string, url strin
 		case "url":
 			ndefMessage = createNDEFURIRecord(string(data))
 		case "openprinttag":
-			// Parse JSON input and encode to CBOR
-			var input openprinttag.Input
-			if err := json.Unmarshal(data, &input); err != nil {
-				return fmt.Errorf("invalid openprinttag JSON: %w", err)
-			}
-			cborPayload, err := input.Encode()
-			if err != nil {
-				return fmt.Errorf("failed to encode openprinttag: %w", err)
-			}
-			ndefMessage = createNDEFMimeRecord(openprinttag.MIMEType, cborPayload)
+			ndefMessage = createNDEFMimeRecord(openprinttag.MIMEType, data) // CBOR-encoded above
 		default:
 			return fmt.Errorf("unsupported data type: %s (use 'json', 'text', 'binary', 'url', or 'openprinttag')", dataType)
 		}
@@ -999,6 +997,10 @@ func WriteDataWithURL(readerName string, data []byte, dataType string, url strin
 	// Write NDEF message based on card type
 	if cardInfo.Type == "MIFARE Classic" {
 		if err := writeMifareClassic(card, ndefMessage); err != nil {
+			return fmt.Errorf("failed to write NDEF message: %w", err)
+		}
+	} else if cardInfo.Protocol == "NFC-V" {
+		if err := writeISO15693NDEF(card, iso15693UserBytes(cardInfo), ndefMessage); err != nil {
 			return fmt.Errorf("failed to write NDEF message: %w", err)
 		}
 	} else {
@@ -1530,6 +1532,90 @@ func readMifareClassicBlock(card *scard.Card, blockNum int, lastAuthSector *int)
 
 // readNTAGPage reads a single 4-byte page from an NTAG card
 // Uses fallback to ACR122U direct transmit if standard command fails
+// readConnectedCardUID returns the UID of the card on an open connection as
+// lowercase hex, or "" if it can't be read. Detection needs it to tell ICode
+// SLI/SLIX/SLIX2 (and their memory sizes) apart.
+func readConnectedCardUID(card *scard.Card) string {
+	rsp, err := card.Transmit([]byte{0xFF, 0xCA, 0x00, 0x00, 0x00})
+	if err != nil || len(rsp) < 3 || rsp[len(rsp)-2] != 0x90 || rsp[len(rsp)-1] != 0x00 {
+		return ""
+	}
+	return hex.EncodeToString(rsp[:len(rsp)-2])
+}
+
+// iso15693UserBytes returns the user memory size of an identified ICode tag,
+// or 0 when it isn't known (generic "ISO 15693" sizes are only a guess).
+func iso15693UserBytes(cardInfo *Card) int {
+	switch cardInfo.Type {
+	case "ICode SLI", "ICode SLIX", "ICode SLIX2":
+		return cardInfo.Size
+	}
+	return 0
+}
+
+// maxISO15693AreaBytes keeps NDEF writes within blocks 1-255, the range the
+// single-byte block address in writeNTAGPages can reach.
+const maxISO15693AreaBytes = 255 * 4
+
+// iso15693CapabilityContainer decides which NFC Forum Type 5 capability
+// container (CC, block 0) to use and how many bytes of NDEF area follow it.
+// A valid CC already on the tag is kept, so factory-formatted tags (e.g.
+// Prusament) and their access bits are left alone; its size is still capped
+// to the known user memory. Otherwise one is built from the tag's user memory
+// size: MLEN = (userBytes - 4) / 8, because the T5T area excludes the 4-byte
+// CC. 0x01 = MBREAD (Read Multiple Blocks). userBytes 0 means unknown.
+func iso15693CapabilityContainer(existing []byte, userBytes int) (cc []byte, write bool, areaBytes int, err error) {
+	if len(existing) >= 4 && existing[0] == 0xE1 && existing[2] > 0 {
+		if existing[1]&0x03 != 0 {
+			return nil, false, 0, fmt.Errorf("tag is write-protected (capability container %x)", existing[:4])
+		}
+		cc, areaBytes = existing[:4], int(existing[2])*8
+	} else {
+		if userBytes <= 4 {
+			return nil, false, 0, fmt.Errorf("tag has no NDEF capability container and its memory size is unknown")
+		}
+		mlen := (userBytes - 4) / 8
+		if mlen > 255 {
+			mlen = 255
+		}
+		cc, write, areaBytes = []byte{0xE1, 0x40, byte(mlen), 0x01}, true, mlen*8
+	}
+	if userBytes > 4 && areaBytes > userBytes-4 {
+		areaBytes = userBytes - 4
+	}
+	if areaBytes > maxISO15693AreaBytes {
+		areaBytes = maxISO15693AreaBytes
+	}
+	return cc, write, areaBytes, nil
+}
+
+// writeISO15693NDEF writes an NDEF TLV to an ISO 15693 (Type 5) tag: TLV from
+// block 1, zero-filling the rest of the NDEF area so leftover data from a
+// longer previous message is erased, then the CC at block 0 if the tag had none.
+func writeISO15693NDEF(card *scard.Card, userBytes int, tlv []byte) error {
+	existing, err := readNTAGPage(card, 0)
+	if err != nil {
+		return fmt.Errorf("failed to read capability container: %w", err)
+	}
+	cc, writeCC, areaBytes, err := iso15693CapabilityContainer(existing, userBytes)
+	if err != nil {
+		return err
+	}
+	if len(tlv) > areaBytes {
+		return fmt.Errorf("NDEF message is %d bytes but the tag only has room for %d", len(tlv), areaBytes)
+	}
+	data := append(append([]byte{}, tlv...), make([]byte, areaBytes-len(tlv))...)
+	if err := writeNTAGPages(card, 1, data); err != nil {
+		return err
+	}
+	if writeCC {
+		if err := writeNTAGPages(card, 0, cc); err != nil {
+			return fmt.Errorf("failed to write capability container: %w", err)
+		}
+	}
+	return nil
+}
+
 func readNTAGPage(card *scard.Card, pageNum int) ([]byte, error) {
 	extLog := settings.IsExtendedLoggingEnabled()
 
@@ -1585,6 +1671,9 @@ func readNTAGPage(card *scard.Card, pageNum int) ([]byte, error) {
 		}
 	}
 
+	if len(rsp) < 2 {
+		return nil, fmt.Errorf("read failed: short response %x", rsp)
+	}
 	return nil, fmt.Errorf("read failed with status: %02X %02X", rsp[len(rsp)-2], rsp[len(rsp)-1])
 }
 
@@ -1625,6 +1714,22 @@ func probeNTAGMemory(card *scard.Card, cardInfo *Card) bool {
 	return false
 }
 
+// openPrintTagUID returns the card UID in the MSB-first byte order OpenPrintTag
+// uses for instance_uuid derivation. PC/SC reports ISO 15693 UIDs LSB-first
+// (ending in the 0xE0 prefix byte), so those are reversed.
+func openPrintTagUID(cardInfo *Card) []byte {
+	uid, err := hex.DecodeString(cardInfo.UID)
+	if err != nil || len(uid) == 0 {
+		return nil
+	}
+	if len(uid) == 8 && uid[7] == 0xE0 && uid[0] != 0xE0 {
+		for i, j := 0, len(uid)-1; i < j; i, j = i+1, j-1 {
+			uid[i], uid[j] = uid[j], uid[i]
+		}
+	}
+	return uid
+}
+
 // readNDEFData attempts to read NDEF data from a card
 func readNDEFData(card *scard.Card, cardInfo *Card) {
 	logging.Debug(logging.CatCard, "Reading NDEF data", map[string]any{
@@ -1653,13 +1758,6 @@ func readNDEFData(card *scard.Card, cardInfo *Card) {
 
 			allData = append(allData, blockData...)
 
-			// Check for NDEF terminator
-			for _, b := range blockData {
-				if b == 0xFE {
-					goto done
-				}
-			}
-
 			// Check if we have complete NDEF message
 			if len(allData) > 2 && allData[0] == 0x03 {
 				var ndefLength, ndefStart int
@@ -1670,8 +1768,19 @@ func readNDEFData(card *scard.Card, cardInfo *Card) {
 					ndefLength = int(allData[1])
 					ndefStart = 2
 				}
-				if ndefStart > 0 && len(allData) >= ndefStart+ndefLength+1 {
-					break
+				if ndefStart > 0 {
+					if len(allData) >= ndefStart+ndefLength+1 {
+						break
+					}
+					// Skip 0xFE check inside NDEF payload - binary payloads (CBOR) may contain 0xFE as data
+					continue
+				}
+			}
+
+			// Check for NDEF terminator (only when NDEF header not yet parsed)
+			for _, b := range blockData {
+				if b == 0xFE {
+					goto done
 				}
 			}
 		}
@@ -1690,13 +1799,6 @@ func readNDEFData(card *scard.Card, cardInfo *Card) {
 
 			allData = append(allData, blockData...)
 
-			// Check for NDEF terminator
-			for _, b := range blockData {
-				if b == 0xFE {
-					goto done
-				}
-			}
-
 			// Check if we have complete NDEF message
 			if len(allData) > 2 && allData[0] == 0x03 {
 				var ndefLength, ndefStart int
@@ -1707,8 +1809,19 @@ func readNDEFData(card *scard.Card, cardInfo *Card) {
 					ndefLength = int(allData[1])
 					ndefStart = 2
 				}
-				if ndefStart > 0 && len(allData) >= ndefStart+ndefLength+1 {
-					break
+				if ndefStart > 0 {
+					if len(allData) >= ndefStart+ndefLength+1 {
+						break
+					}
+					// Skip 0xFE check inside NDEF payload — binary payloads (CBOR) may contain 0xFE as data
+					continue
+				}
+			}
+
+			// Check for NDEF terminator (only when NDEF header not yet parsed)
+			for _, b := range blockData {
+				if b == 0xFE {
+					goto done
 				}
 			}
 		}
@@ -1733,13 +1846,6 @@ func readNDEFData(card *scard.Card, cardInfo *Card) {
 
 			allData = append(allData, pageData...)
 
-			// Check for NDEF terminator
-			for _, b := range pageData {
-				if b == 0xFE {
-					goto done
-				}
-			}
-
 			// Check if we have complete NDEF message
 			if len(allData) > 2 && allData[0] == 0x03 {
 				var ndefLength, ndefStart int
@@ -1750,8 +1856,19 @@ func readNDEFData(card *scard.Card, cardInfo *Card) {
 					ndefLength = int(allData[1])
 					ndefStart = 2
 				}
-				if ndefStart > 0 && len(allData) >= ndefStart+ndefLength+1 {
-					break
+				if ndefStart > 0 {
+					if len(allData) >= ndefStart+ndefLength+1 {
+						break
+					}
+					// Skip 0xFE check inside NDEF payload — binary payloads (CBOR) may contain 0xFE as data
+					continue
+				}
+			}
+
+			// Check for NDEF terminator (only when NDEF header not yet parsed)
+			for _, b := range pageData {
+				if b == 0xFE {
+					goto done
 				}
 			}
 		}
@@ -1861,7 +1978,7 @@ done:
 				// OpenPrintTag format (application/vnd.openprinttag or application/cbor)
 				opt, err := openprinttag.Decode(payload)
 				if err == nil {
-					resp := opt.ToResponse()
+					resp := opt.ToResponseForTag(openPrintTagUID(cardInfo))
 					jsonData, _ := json.Marshal(resp)
 					cardInfo.Data = string(jsonData)
 					cardInfo.DataType = "openprinttag"
@@ -1957,16 +2074,29 @@ func EraseCard(readerName string) error {
 	// Detect card type to determine how many pages to zero out
 	status, statusErr := card.Status()
 	var totalUserBytes int
+	isNFCV := false
 	if statusErr == nil {
-		cardInfo := &Card{ATR: hex.EncodeToString(status.Atr)}
+		cardInfo := &Card{UID: readConnectedCardUID(card), ATR: hex.EncodeToString(status.Atr)}
 		detectCardType(card, cardInfo)
 		totalUserBytes = cardInfo.Size
+		isNFCV = cardInfo.Protocol == "NFC-V"
+		if isNFCV {
+			totalUserBytes = iso15693UserBytes(cardInfo)
+		}
 	}
 
 	// Write an empty NDEF message (just TLV header and terminator)
 	// then zero-fill remaining user pages to fully erase old data.
 	// 0x03 = NDEF TLV, 0x00 = length, 0xFE = terminator
 	emptyNDEF := []byte{0x03, 0x00, 0xFE, 0x00}
+	if isNFCV {
+		// ISO 15693 keeps NDEF at block 1, after the capability container.
+		if err := writeISO15693NDEF(card, totalUserBytes, emptyNDEF); err != nil {
+			return fmt.Errorf("failed to erase card: %w", err)
+		}
+		clearCacheForConnectedCard(card)
+		return nil
+	}
 	if totalUserBytes > len(emptyNDEF) {
 		emptyNDEF = append(emptyNDEF, make([]byte, totalUserBytes-len(emptyNDEF))...)
 	}
@@ -2266,7 +2396,7 @@ func WriteMultipleRecords(readerName string, records []NDEFRecord) error {
 	isISO15693 := contains(atr, "03060b")
 
 	// Detect card type for size info (used to zero-fill remaining pages)
-	cardInfo := &Card{ATR: atr}
+	cardInfo := &Card{UID: readConnectedCardUID(card), ATR: atr}
 	detectCardType(card, cardInfo)
 
 	// Build multi-record NDEF message
@@ -2331,21 +2461,7 @@ func WriteMultipleRecords(readerName string, records []NDEFRecord) error {
 	tlv = append(tlv, 0xFE)
 
 	if isISO15693 {
-		// ISO 15693 (Type 5) tags: CC at block 0, NDEF at block 1
-		// CC format: E1 [version/access] [size/8] [features]
-		// - 0xE1: Magic number
-		// - 0x40: Version 1.0 (4), read/write access (0)
-		// - Size: Available memory / 8 (we'll use 0x40 = 512 bytes, conservative)
-		// - 0x00: No special features
-		cc := []byte{0xE1, 0x40, 0x40, 0x00}
-
-		// Write CC at block 0
-		if err := writeNTAGPages(card, 0, cc); err != nil {
-			return fmt.Errorf("failed to write CC block: %w", err)
-		}
-
-		// Write NDEF TLV starting at block 1
-		if err := writeNTAGPages(card, 1, tlv); err != nil {
+		if err := writeISO15693NDEF(card, iso15693UserBytes(cardInfo), tlv); err != nil {
 			return fmt.Errorf("failed to write NDEF records: %w", err)
 		}
 	} else {

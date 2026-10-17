@@ -492,10 +492,10 @@ func (c *WSClient) resetLastUID(readerName string) {
 
 func (c *WSClient) handleWriteCard(id string, payload json.RawMessage) {
 	var req struct {
-		ReaderIndex int    `json:"readerIndex"`
-		Data        string `json:"data"`
-		DataType    string `json:"dataType"`
-		URL         string `json:"url"`
+		ReaderIndex int       `json:"readerIndex"`
+		Data        writeData `json:"data"`
+		DataType    string    `json:"dataType"`
+		URL         string    `json:"url"`
 	}
 	if err := json.Unmarshal(payload, &req); err != nil {
 		c.sendError(id, "invalid payload")
@@ -518,7 +518,7 @@ func (c *WSClient) handleWriteCard(id string, payload json.RawMessage) {
 		dataBytes = []byte(req.Data)
 	case "binary":
 		var err error
-		dataBytes, err = base64.StdEncoding.DecodeString(req.Data)
+		dataBytes, err = base64.StdEncoding.DecodeString(string(req.Data))
 		if err != nil {
 			c.sendError(id, "invalid base64 data")
 			return
@@ -528,6 +528,10 @@ func (c *WSClient) handleWriteCard(id string, payload json.RawMessage) {
 		var input openprinttag.Input
 		if err := json.Unmarshal([]byte(req.Data), &input); err != nil {
 			c.sendError(id, "invalid openprinttag JSON format: "+err.Error())
+			return
+		}
+		if err := input.Validate(); err != nil {
+			c.sendError(id, "invalid openprinttag data: "+err.Error())
 			return
 		}
 		dataBytes = []byte(req.Data)
