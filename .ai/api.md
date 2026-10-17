@@ -101,6 +101,7 @@ curl -X POST http://127.0.0.1:32145/v1/readers/0/card \
 curl -X POST http://127.0.0.1:32145/v1/readers/0/card \
   -H "Content-Type: application/json" \
   -d '{"data":"{\"key\":\"value\"}","dataType":"json"}'
+# For dataType json/openprinttag, "data" may also be the JSON object itself (HTTP and WS write_card)
 
 # Write OpenPrintTag
 curl -X POST http://127.0.0.1:32145/v1/readers/0/card \

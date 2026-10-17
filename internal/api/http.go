@@ -337,7 +337,7 @@ func handleReaderCard(w http.ResponseWriter, r *http.Request, readerName string)
 	case http.MethodPost:
 		// Write data to card
 		var req struct {
-			Data     string `json:"data"`     // Data to write (string for text/json, base64 for binary)
+			Data     writeData `json:"data"`  // Data to write (string for text/json, base64 for binary; JSON object also accepted)
 			DataType string `json:"dataType"` // "text", "json", "binary", or "url"
 			URL      string `json:"url"`      // Optional URL to write as first record
 		}
@@ -362,7 +362,7 @@ func handleReaderCard(w http.ResponseWriter, r *http.Request, readerName string)
 		case "binary":
 			// Decode base64 for binary data
 			var err error
-			dataBytes, err = base64.StdEncoding.DecodeString(req.Data)
+			dataBytes, err = base64.StdEncoding.DecodeString(string(req.Data))
 			if err != nil {
 				respondJSON(w, http.StatusBadRequest, map[string]string{
 					"error": "invalid base64 data for binary type",

@@ -543,17 +543,6 @@ func (i *Input) ToOpenPrintTag() (*OpenPrintTag, error) {
 		opt.Main.PackageUUID = b
 	}
 
-	if i.MaterialUUID != "" {
-		b, err := parseUUID(i.MaterialUUID)
-		if err != nil {
-			return nil, fmt.Errorf("invalid materialUuid: %w", err)
-		}
-		opt.Main.MaterialUUID = b
-	} else {
-		// Generate material UUID from brand + material name
-		opt.Main.MaterialUUID = GenerateMaterialUUID(i.BrandName, i.MaterialName)
-	}
-
 	if i.BrandUUID != "" {
 		b, err := parseUUID(i.BrandUUID)
 		if err != nil {
@@ -563,6 +552,18 @@ func (i *Input) ToOpenPrintTag() (*OpenPrintTag, error) {
 	} else {
 		// Generate brand UUID from brand name
 		opt.Main.BrandUUID = GenerateBrandUUID(i.BrandName)
+	}
+
+	if i.MaterialUUID != "" {
+		b, err := parseUUID(i.MaterialUUID)
+		if err != nil {
+			return nil, fmt.Errorf("invalid materialUuid: %w", err)
+		}
+		opt.Main.MaterialUUID = b
+	} else {
+		// Per spec: material_uuid = uuid5(ns, brand_uuid + material_name), using
+		// the brand UUID actually written (explicit or derived)
+		opt.Main.MaterialUUID = generateMaterialUUIDFromBrand(opt.Main.BrandUUID, i.MaterialName)
 	}
 
 	// Parse color

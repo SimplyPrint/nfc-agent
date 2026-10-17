@@ -429,10 +429,10 @@ func (i *Input) resolveMaterial() (materialSpec, error) {
 	return m, nil
 }
 
-// Validate reports input errors that would make ToOpenPrintTag fail, so API
+// Validate reports input errors that would make Encode fail, so API
 // handlers can reject bad requests before touching the card.
 func (i *Input) Validate() error {
-	_, err := i.resolveMaterial()
+	_, err := i.Encode()
 	return err
 }
 

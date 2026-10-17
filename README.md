@@ -757,17 +757,21 @@ curl -X POST http://127.0.0.1:32145/v1/readers/0/card \
 {
   "type": "write_card",
   "id": "1",
-  "reader": 0,
-  "dataType": "openprinttag",
-  "data": {
-    "materialName": "PETG Orange",
-    "brandName": "Prusa",
-    "materialClass": 0,
-    "materialType": "PETG",
-    "nominalWeight": 1000
+  "payload": {
+    "readerIndex": 0,
+    "dataType": "openprinttag",
+    "data": {
+      "materialName": "PETG Orange",
+      "brandName": "Prusa",
+      "materialClass": 0,
+      "materialType": "PETG",
+      "nominalWeight": 1000
+    }
   }
 }
 ```
+
+`data` can be the JSON object itself (as above) or the same JSON as a string.
 
 On ISO 15693 tags the agent keeps an existing capability container. For blank ICode SLI/SLIX/SLIX2 tags it writes one sized to the tag (`E1 40 27 01` on SLIX2). Writes are rejected if the message doesn't fit, or if the tag is a blank ISO 15693 tag of unknown size.
 
