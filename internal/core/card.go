@@ -47,6 +47,13 @@ var (
 	cardDetectionCache   = make(map[string]*Card)
 	cardDetectionCacheMu sync.RWMutex
 
+	// uncertainDetections tracks UIDs whose detection keeps coming back uncertain
+	// (guarded by cardDetectionCacheMu). Uncertain results are normally not
+	// cached so the next poll can retry, but a card that is always uncertain
+	// would otherwise be re-probed (with reader resets) on every poll forever,
+	// which locks up readers like the ACR1552.
+	uncertainDetections = make(map[string]*uncertainDetection)
+
 	// readerMutexes provides per-reader synchronization to prevent concurrent
 	// GetCardUID calls on the same reader from racing with each other.
 	// This is especially important for password-protected NTAG cards where
@@ -55,11 +62,65 @@ var (
 	readerMutexesMu sync.Mutex
 )
 
+const (
+	// maxUncertainDetections is how many consecutive uncertain detections of the
+	// same UID are attempted before the best-guess result is cached anyway.
+	maxUncertainDetections = 3
+	// uncertainCacheTTL is how long a best-guess result stays cached before the
+	// card is re-detected, so a wrong guess doesn't stick until restart.
+	uncertainCacheTTL = 10 * time.Second
+)
+
+type uncertainDetection struct {
+	attempts int
+	expires  time.Time // zero until a best-guess result has been cached
+}
+
+// lookupCachedDetection returns the cached detection result for uid, dropping
+// best-guess entries older than uncertainCacheTTL.
+func lookupCachedDetection(uid string, now time.Time) (*Card, bool) {
+	cardDetectionCacheMu.Lock()
+	defer cardDetectionCacheMu.Unlock()
+	cached, found := cardDetectionCache[uid]
+	if !found {
+		return nil, false
+	}
+	if u, ok := uncertainDetections[uid]; ok && !u.expires.IsZero() && now.After(u.expires) {
+		delete(cardDetectionCache, uid)
+		return nil, false
+	}
+	return cached, true
+}
+
+// shouldCacheDetection records a detection outcome for uid and reports whether
+// the result should be cached: always when confident, and after
+// maxUncertainDetections consecutive uncertain attempts (with a TTL).
+func shouldCacheDetection(uid string, confident bool, now time.Time) bool {
+	cardDetectionCacheMu.Lock()
+	defer cardDetectionCacheMu.Unlock()
+	if confident {
+		delete(uncertainDetections, uid)
+		return true
+	}
+	u, ok := uncertainDetections[uid]
+	if !ok {
+		u = &uncertainDetection{}
+		uncertainDetections[uid] = u
+	}
+	u.attempts++
+	if u.attempts < maxUncertainDetections {
+		return false
+	}
+	u.expires = now.Add(uncertainCacheTTL)
+	return true
+}
+
 // ClearCardCache removes a card from the detection cache.
 // Called when a card is removed from the reader.
 func ClearCardCache(uid string) {
 	cardDetectionCacheMu.Lock()
 	delete(cardDetectionCache, uid)
+	delete(uncertainDetections, uid)
 	cardDetectionCacheMu.Unlock()
 	logging.Debug(logging.CatCard, "Cleared card detection cache", map[string]any{"uid": uid})
 }
@@ -78,6 +139,7 @@ func clearCacheForConnectedCard(card *scard.Card) {
 func ClearAllCardCache() {
 	cardDetectionCacheMu.Lock()
 	cardDetectionCache = make(map[string]*Card)
+	uncertainDetections = make(map[string]*uncertainDetection)
 	cardDetectionCacheMu.Unlock()
 	logging.Debug(logging.CatCard, "Cleared all card detection cache", nil)
 }
@@ -114,14 +176,16 @@ func GetCardUID(readerName string) (*Card, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to establish context: %w", err)
 	}
-	defer ctx.Release()
+	// Closures so the handles replaced during the reconnect fallback below
+	// are the ones released, not the originals captured at defer time.
+	defer func() { ctx.Release() }()
 
 	// Connect to the reader
 	card, err := ctx.Connect(readerName, scard.ShareShared, scard.ProtocolAny)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to reader: %w", err)
 	}
-	defer card.Disconnect(scard.LeaveCard)
+	defer func() { card.Disconnect(scard.LeaveCard) }()
 
 	// Get the ATR (Answer To Reset)
 	status, err := card.Status()
@@ -158,9 +222,7 @@ func GetCardUID(readerName string) (*Card, error) {
 	// detection commands (GET_VERSION, CC reads, memory probes) on every poll.
 	// This significantly reduces reader command traffic and prevents reader
 	// unresponsiveness on readers like ACR1252 that struggle with rapid commands.
-	cardDetectionCacheMu.RLock()
-	cachedCard, found := cardDetectionCache[uidHex]
-	cardDetectionCacheMu.RUnlock()
+	cachedCard, found := lookupCachedDetection(uidHex, time.Now())
 
 	var cardInfo *Card
 	if found {
@@ -242,8 +304,17 @@ func GetCardUID(readerName string) (*Card, error) {
 
 		// Only cache confident detection results.
 		// If detection was uncertain (e.g., card removed during detection),
-		// don't cache so next poll can retry with a fresh detection.
-		if confident {
+		// don't cache so next poll can retry with a fresh detection - but only
+		// a few times, so a card that never detects confidently doesn't keep
+		// the reader in a constant reset/probe loop.
+		if shouldCacheDetection(uidHex, confident, time.Now()) {
+			if !confident {
+				logging.Debug(logging.CatCard, "Detection still uncertain, caching best guess", map[string]any{
+					"uid":  uidHex,
+					"type": cardInfo.Type,
+					"ttl":  uncertainCacheTTL.String(),
+				})
+			}
 			cardDetectionCacheMu.Lock()
 			cardDetectionCache[uidHex] = &Card{
 				UID:         cardInfo.UID,
@@ -326,6 +397,18 @@ func detectCardType(card *scard.Card, cardInfo *Card) (confident bool) {
 			cardInfo.Protocol = "NFC-A"
 			cardInfo.ProtocolISO = "ISO 14443-3A"
 		}
+	}
+
+	// MIFARE Classic reported directly in the ATR (PC/SC Part 3 card name).
+	// Must be checked before GET_VERSION and the memory probe: Classic tags
+	// reject those commands, and the probe's reader resets then repeat on every
+	// poll. Classic tags with non-default keys (e.g., Bambu Lab) also fail the
+	// authentication probe below, so the ATR is the only reliable signal.
+	if isMifareClassicATR(atr) {
+		cardInfo.Type = "MIFARE Classic"
+		cardInfo.Size = 1024
+		cardInfo.Writable = true
+		return true
 	}
 
 	// Track if GET_VERSION ever succeeded - important for trusting CC-based detection later.
@@ -775,25 +858,11 @@ func detectCardType(card *scard.Card, cardInfo *Card) (confident bool) {
 			return true
 		}
 
-		// Both NTAG, MIFARE Ultralight, and MIFARE Classic can have ATRs starting with
-		// 3b8f and containing 03060300. The key difference is at byte 14 (hex position 28-29):
-		// - MIFARE Classic: 01
-		// - NTAG / MIFARE Ultralight: 03 (can't distinguish by ATR alone)
-
-		if contains(atr, "03060300") {
-			// Check byte 14 to distinguish MIFARE Classic from other types
-			if atr[28:30] == "01" {
-				// MIFARE Classic
-				cardInfo.Type = "MIFARE Classic"
-				cardInfo.Writable = true
-				cardInfo.Size = 1024
-				return true
-			}
-			// Note: For byte 14 == "03" (ISO 14443-3A Type 2 tags like NTAG/Ultralight),
-			// detection is handled by Method 3 (memory probe) above when GET_VERSION and CC both failed.
-			// If we reach here, either GET_VERSION or CC succeeded but didn't identify the type,
-			// which means the CC size didn't match known types - fall through to unknown.
-		}
+		// MIFARE Classic ATRs (byte 14 = 01/02/26) are handled at the top of detectCardType.
+		// For byte 14 == "03" (ISO 14443-3A Type 2 tags like NTAG/Ultralight),
+		// detection is handled by Method 3 (memory probe) above when GET_VERSION and CC both failed.
+		// If we reach here, either GET_VERSION or CC succeeded but didn't identify the type,
+		// which means the CC size didn't match known types - fall through to unknown.
 
 		// Fallback: if ATR starts with 3b8f/3b8b but doesn't match above patterns
 		// Could be older MIFARE or unknown card type
@@ -806,6 +875,21 @@ func detectCardType(card *scard.Card, cardInfo *Card) (confident bool) {
 	cardInfo.Type = "NFC Tag (type unknown)"
 	cardInfo.Writable = true
 	return false // Not confident - don't cache
+}
+
+// isMifareClassicATR reports whether a contactless storage card ATR
+// (3B 8F/8B ... 03 06 03 00 NN) names MIFARE Classic via its PC/SC Part 3
+// card name: 01 = Classic 1K, 02 = Classic 4K, 26 = MIFARE Mini.
+// Some readers (e.g., ACR1252U) report Classic as 0003, so false does not rule it out.
+func isMifareClassicATR(atr string) bool {
+	if len(atr) < 30 || (atr[0:4] != "3b8f" && atr[0:4] != "3b8b") || atr[20:28] != "03060300" {
+		return false
+	}
+	switch atr[28:30] {
+	case "01", "02", "26":
+		return true
+	}
+	return false
 }
 
 // Helper function to check if a string contains a substring
