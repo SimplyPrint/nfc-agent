@@ -392,7 +392,7 @@ func (i *Input) resolveMaterial() (materialSpec, error) {
 		}
 		m = material(MaterialType(*i.MaterialTypeID))
 	case len(i.MaterialType) == 0 || string(i.MaterialType) == "null":
-		if MaterialClass(i.MaterialClass) == MaterialClassFFF {
+		if i.MaterialClass == int(MaterialClassFFF) {
 			m = material(MaterialTypePLA) // pre-v0.8 default (missing int = 0 = PLA)
 		} // material_type is only defined for FFF; leave it out for SLA
 	default:
