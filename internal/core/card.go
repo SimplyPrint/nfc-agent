@@ -1371,6 +1371,16 @@ func writeMifareClassic(card *scard.Card, data []byte) error {
 }
 
 // writeNTAGPages writes data to NTAG card pages (4 bytes per page)
+// reselectAfterNAK re-activates the card after it NAKed a command. A Type 2
+// tag drops to its idle state on NAK, and the ACR1552 doesn't re-select it by
+// itself, so every following command failed with 6A 81 until the tag was
+// lifted and replaced. A reset reconnect makes the reader select it again.
+func reselectAfterNAK(card *scard.Card) {
+	if err := card.Reconnect(scard.ShareShared, scard.ProtocolAny, scard.ResetCard); err != nil {
+		logging.Debug(logging.CatCard, "Reconnect after NAK failed", map[string]any{"error": err.Error()})
+	}
+}
+
 // transparentExchangeACK reports whether an ACR1552 transparent exchange
 // response (BER-TLV objects followed by SW1 SW2) carries the NFC Forum Type 2
 // ACK: response data object 0x97 whose first byte's low nibble is 0xA.
@@ -1558,6 +1568,7 @@ func writeNTAGPages(card *scard.Card, startPage int, data []byte) error {
 				// it NAKed the write (e.g. password-protected or non-existent page).
 				if err == nil && len(rsp) >= 2 && rsp[len(rsp)-2] == 0x90 {
 					if !transparentExchangeACK(rsp) {
+						reselectAfterNAK(card)
 						return fmt.Errorf("write failed at page %d: tag did not acknowledge (response %x)", pageNum, rsp)
 					}
 					logging.Debug(logging.CatCard, "NDEF page written", map[string]any{
@@ -3118,6 +3129,7 @@ func WriteUltralightPage(readerName string, page int, data []byte, password []by
 			// Check for success: the tag itself must ACK, not just the reader (90 00)
 			if err == nil && len(rsp) >= 2 && rsp[len(rsp)-2] == 0x90 {
 				if !transparentExchangeACK(rsp) {
+					reselectAfterNAK(card)
 					return fmt.Errorf("write failed for page %d: tag did not acknowledge (response %x)", page, rsp)
 				}
 				logging.Info(logging.CatCard, "Ultralight page written", map[string]any{
@@ -3266,6 +3278,7 @@ func WriteUltralightPages(readerName string, pages []UltralightPageWrite, passwo
 
 				if err == nil && len(rsp) >= 2 && rsp[len(rsp)-2] == 0x90 && !transparentExchangeACK(rsp) {
 					results[i].Error = fmt.Sprintf("tag did not acknowledge (response %x)", rsp)
+					reselectAfterNAK(card)
 					continue
 				}
 				if err == nil && len(rsp) >= 2 && rsp[len(rsp)-2] == 0x90 {

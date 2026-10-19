@@ -148,9 +148,10 @@ curl -X POST http://127.0.0.1:32145/v1/readers/0/lock \
 curl -X POST http://127.0.0.1:32145/v1/readers/0/records \
   -H "Content-Type: application/json" \
   -d '{"records":[
-    {"type":"uri","format":"U","data":"https://example.com"},
-    {"type":"text","format":"T","data":"Hello"}
+    {"type":"url","data":"https://example.com"},
+    {"type":"text","data":"Hello"}
   ]}'
+# Record types: "url", "text", "json", "binary" (hex), "mime" (needs "mimeType"; "dataType":"binary" = base64 data)
 ```
 
 ---
@@ -356,8 +357,8 @@ URL: `ws://127.0.0.1:32145/v1/ws`
 → {"type":"write_records","id":"wr1","payload":{
     "readerIndex":0,
     "records":[
-      {"type":"uri","format":"U","data":"https://example.com"},
-      {"type":"text","format":"T","data":"Hello"}
+      {"type":"url","data":"https://example.com"},
+      {"type":"text","data":"Hello"}
     ]
   }}
 ← {"type":"records_written","id":"wr1","payload":{"success":"records written"}}
