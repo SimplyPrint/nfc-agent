@@ -40,13 +40,13 @@ func TestDetectReaderType(t *testing.T) {
 		{"Cherry SmartTerminal ST-1144", "picc"},
 
 		// Edge cases
-		{"", "picc"},                    // Empty string defaults to PICC
-		{"SAM", "picc"},                 // Just "SAM" without space before or after
-		{" SAM ", "sam"},                // SAM with spaces
-		{"MySAMReader", "picc"},         // SAM embedded in word without spaces
-		{"PICC Reader", "picc"},         // PICC at start
-		{"Reader PICC", "picc"},         // PICC at end
-		{"SamSung Reader", "picc"},      // Samsung (not SAM reader)
+		{"", "picc"},               // Empty string defaults to PICC
+		{"SAM", "picc"},            // Just "SAM" without space before or after
+		{" SAM ", "sam"},           // SAM with spaces
+		{"MySAMReader", "picc"},    // SAM embedded in word without spaces
+		{"PICC Reader", "picc"},    // PICC at start
+		{"Reader PICC", "picc"},    // PICC at end
+		{"SamSung Reader", "picc"}, // Samsung (not SAM reader)
 	}
 
 	for _, tt := range tests {
@@ -98,8 +98,8 @@ func TestDetectReaderType_RealHardware(t *testing.T) {
 
 func TestReaderStruct(t *testing.T) {
 	tests := []struct {
-		id       string
-		name     string
+		id         string
+		name       string
 		readerType string
 	}{
 		{"reader-0", "ACS ACR122U PICC Interface", "picc"},

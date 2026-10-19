@@ -46,12 +46,26 @@ func listPCSCReaders() []Reader {
 
 	readerNames, err := ctx.ListReaders()
 	if err != nil {
-		// This is normal when no readers are connected, log at debug level
 		logging.Debug(logging.CatReader, "No readers found", map[string]any{
 			"error": err.Error(),
 		})
-		return []Reader{}
+		readerNames = []string{}
+		err = nil
 	}
+
+	for _, customReader := range listCustomGroupReaders() {
+		duplicate := false
+		for _, readerName := range readerNames {
+			if readerName == customReader {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			readerNames = append(readerNames, customReader)
+		}
+	}
+	err = nil
 
 	readers := make([]Reader, 0, len(readerNames))
 	readerIndex := 0
