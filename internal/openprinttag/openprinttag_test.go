@@ -127,8 +127,8 @@ func TestInputToOpenPrintTag(t *testing.T) {
 	}
 
 	// Verify UUIDs were generated
-	if len(opt.Main.InstanceUUID) != 16 {
-		t.Errorf("InstanceUUID should be 16 bytes, got %d", len(opt.Main.InstanceUUID))
+	if len(opt.Main.InstanceUUID) != 0 {
+		t.Errorf("InstanceUUID should not be stored when not given (readers derive it), got %d bytes", len(opt.Main.InstanceUUID))
 	}
 	if len(opt.Main.MaterialUUID) != 16 {
 		t.Errorf("MaterialUUID should be 16 bytes, got %d", len(opt.Main.MaterialUUID))

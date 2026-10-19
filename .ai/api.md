@@ -593,7 +593,7 @@ When writing with `dataType:"openprinttag"`, the `data` field is a JSON object:
 | `materialName` | string | yes | Display name (e.g. "PLA Galaxy Black") |
 | `brandName` | string | yes | Brand/manufacturer (e.g. "Prusament") |
 | `nominalWeight` | float | yes | Nominal weight in grams (e.g. 1000) |
-| `materialClass` | int | no | 0 = FFF/filament (default), 1 = SLA/resin |
+| `materialClass` | int/string | no | 0 or "FFF" = filament (default), 1 or "SLA" = resin |
 | `materialType` | string/int | no | Spec name (`"PETG"`, `"PA-CF"`, …) or legacy nfc-agent integer (0=PLA, 1=ABS, 2=PETG, 3=ASA, 4=PC, 5=Nylon, 6=TPU, 7=PVA, 8=HIPS, 9=PP, 10=PEI, 11=PEEK, 12=PA, 13–18=PA/PLA/PETG-CF/GF, 255=Other), translated to the spec value. Default PLA |
 | `materialTypeId` | int | no | Raw spec material_type value; overrides `materialType` |
 | `tags` | int[] | no | Extra spec tag values (key 28) |
@@ -607,7 +607,7 @@ When writing with `dataType:"openprinttag"`, the `data` field is a JSON object:
 
 More write fields (GTIN, brand-specific IDs, weights, lengths, bed/chamber temps, spool dimensions) and the read response format: see the OpenPrintTag section of README.md.
 
-Read responses return `materialType` as the spec abbreviation plus `materialTypeId` (raw value) and `tags`. UUIDs missing from the tag are derived per spec (brand, material, package from GTIN, instance from the tag UID).
+A read response's `data` can be sent back as write input unchanged; without `instanceUuid` a rewrite keeps the tag's stored instance UUID (none is generated). Read responses return `materialType` as the spec abbreviation plus `materialTypeId` (raw value) and `tags`. UUIDs missing from the tag are derived per spec (brand, material, package from GTIN, instance from the tag UID).
 
 See full spec: https://specs.openprinttag.org/#/
 

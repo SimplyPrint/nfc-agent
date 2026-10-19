@@ -786,14 +786,14 @@ To pass a raw spec value instead, use `materialTypeId` (e.g. `"materialTypeId": 
 
 ### OpenPrintTag Fields
 
-Write fields (read responses use the same names, plus `remainingWeight`, `filamentLength` and the derived UUIDs):
+Write fields. Read responses use the same names, plus `remainingWeight`, `filamentLength` and the derived UUIDs. A read response's `data` can be sent back as a write unchanged, e.g. to update one field:
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `materialName` | string | Material display name (required) |
 | `brandName` | string | Brand/manufacturer name (required) |
 | `nominalWeight` | float | Nominal net weight in grams (required) |
-| `materialClass` | int | 0 = FFF (filament), 1 = SLA (resin) |
+| `materialClass` | int / string | 0 or `"FFF"` (filament), 1 or `"SLA"` (resin) |
 | `materialType` | string / int | Material type, see above |
 | `materialTypeId` | int | Raw spec material_type value |
 | `tags` | int[] | Extra spec tag values |
@@ -802,7 +802,7 @@ Write fields (read responses use the same names, plus `remainingWeight`, `filame
 | `brandSpecificInstanceId` | string | Brand's own spool ID |
 | `brandSpecificPackageId` | string | Brand's own product ID |
 | `brandSpecificMaterialId` | string | Brand's own material ID |
-| `instanceUuid`, `packageUuid`, `materialUuid`, `brandUuid` | string | Override the generated UUIDs |
+| `instanceUuid`, `packageUuid`, `materialUuid`, `brandUuid` | string | Override the derived UUIDs. Without `instanceUuid`, a rewrite keeps the UUID already stored on the tag; otherwise none is stored and readers derive it from the tag UID. |
 | `primaryColor` | string | Hex color code (#RRGGBB or #RRGGBBAA) |
 | `filamentDiameter` | float | Diameter in mm |
 | `density` | float | Material density in g/cm³ |

@@ -529,11 +529,11 @@ func (i *Input) ToOpenPrintTag() (*OpenPrintTag, error) {
 			return nil, fmt.Errorf("invalid instanceUuid: %w", err)
 		}
 		opt.Main.InstanceUUID = b
-	} else {
-		// Generate a new UUID if not provided
-		newUUID := uuid.New()
-		opt.Main.InstanceUUID = newUUID[:]
 	}
+	// No instanceUuid: leave it off the tag so readers derive it from the tag
+	// UID (spec nfc_data_format 3.2). A random one would give the spool a new
+	// identity on every rewrite. Callers that rewrite an existing tag keep its
+	// stored UUID by passing it in (core.WriteDataWithURL does this).
 
 	if i.PackageUUID != "" {
 		b, err := parseUUID(i.PackageUUID)

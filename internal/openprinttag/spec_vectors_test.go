@@ -279,3 +279,73 @@ func TestInputValidate(t *testing.T) {
 		t.Errorf("Validate(legacy 2) = %v", err)
 	}
 }
+
+// TestMaterialClassInput verifies materialClass accepts the read format
+// ("FFF"/"SLA") as well as numbers (issue #13).
+func TestMaterialClassInput(t *testing.T) {
+	tests := []struct {
+		in      string
+		want    MaterialClassInput
+		wantErr bool
+	}{
+		{`{"materialClass":0}`, 0, false},
+		{`{"materialClass":1}`, 1, false},
+		{`{"materialClass":"FFF"}`, 0, false},
+		{`{"materialClass":"sla"}`, 1, false},
+		{`{}`, 0, false},
+		{`{"materialClass":"resin"}`, 0, true},
+		{`{"materialClass":-1}`, 0, true},
+	}
+	for _, tt := range tests {
+		var in Input
+		err := json.Unmarshal([]byte(tt.in), &in)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("%s: err = %v, wantErr %v", tt.in, err, tt.wantErr)
+			continue
+		}
+		if !tt.wantErr && in.MaterialClass != tt.want {
+			t.Errorf("%s: materialClass = %d, want %d", tt.in, in.MaterialClass, tt.want)
+		}
+	}
+}
+
+// TestReadResponseRoundTrip verifies a read response can be sent back as a
+// write unchanged (issue #13): same material, and an instance UUID that was
+// only derived is not suddenly stored.
+func TestReadResponseRoundTrip(t *testing.T) {
+	opt, err := Decode(specVectorPayload(t, "02_data.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid := []byte{0xE0, 0x04, 0x01, 0x08, 0x66, 0x2F, 0x6F, 0xBC}
+	readJSON, err := json.Marshal(opt.ToResponseForTag(uid))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var in Input
+	if err := json.Unmarshal(readJSON, &in); err != nil {
+		t.Fatalf("read response rejected as write input: %v", err)
+	}
+	if err := in.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	// Writers (core.WriteDataWithURL) drop an instance UUID equal to the derived one.
+	if in.InstanceUUID != DerivedInstanceUUID(uid) {
+		t.Fatalf("instanceUuid = %s, want derived %s", in.InstanceUUID, DerivedInstanceUUID(uid))
+	}
+	in.InstanceUUID = ""
+	written, err := in.ToOpenPrintTag()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if written.Main.MaterialType == nil || *written.Main.MaterialType != MaterialTypePETG {
+		t.Errorf("material type changed on round trip: %v", written.Main.MaterialType)
+	}
+	if len(written.Main.InstanceUUID) != 0 {
+		t.Error("derived instance UUID should not be stored")
+	}
+	if got := written.ToResponseForTag(uid).InstanceUUID; got != DerivedInstanceUUID(uid) {
+		t.Errorf("instance UUID after rewrite = %s, want unchanged %s", got, DerivedInstanceUUID(uid))
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -1032,6 +1033,13 @@ func WriteDataWithURL(readerName string, data []byte, dataType string, url strin
 		if err := json.Unmarshal(data, &input); err != nil {
 			return fmt.Errorf("invalid openprinttag JSON: %w", err)
 		}
+		if uid := openPrintTagUID(cardInfo); len(uid) > 0 && strings.EqualFold(input.InstanceUUID, openprinttag.DerivedInstanceUUID(uid)) {
+			input.InstanceUUID = "" // equal to what readers derive: no need to store it (spec 3.2.0.2)
+		}
+		if input.InstanceUUID == "" {
+			// Rewriting an existing spool (e.g. a weight update) must keep its identity.
+			input.InstanceUUID = storedOpenPrintTagInstanceUUID(card, cardInfo)
+		}
 		cborPayload, err := input.Encode()
 		if err != nil {
 			return fmt.Errorf("failed to encode openprinttag: %w", err)
@@ -1840,6 +1848,28 @@ func probeNTAGMemory(card *scard.Card, cardInfo *Card) bool {
 
 	logging.Debug(logging.CatCard, "Memory probe retry: all pages failed", nil)
 	return false
+}
+
+// storedOpenPrintTagInstanceUUID returns the instance UUID stored in the
+// OpenPrintTag data currently on the card, or "" if there is none or it is
+// only the value readers derive from the tag UID anyway.
+func storedOpenPrintTagInstanceUUID(card *scard.Card, cardInfo *Card) string {
+	probe := *cardInfo
+	probe.Data, probe.DataType, probe.URL = "", "", ""
+	readNDEFData(card, &probe)
+	if probe.DataType != "openprinttag" {
+		return ""
+	}
+	var resp struct {
+		InstanceUUID string `json:"instanceUuid"`
+	}
+	if err := json.Unmarshal([]byte(probe.Data), &resp); err != nil {
+		return ""
+	}
+	if uid := openPrintTagUID(cardInfo); len(uid) > 0 && resp.InstanceUUID == openprinttag.DerivedInstanceUUID(uid) {
+		return ""
+	}
+	return resp.InstanceUUID
 }
 
 // openPrintTagUID returns the card UID in the MSB-first byte order OpenPrintTag

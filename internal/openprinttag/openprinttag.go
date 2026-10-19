@@ -331,10 +331,10 @@ type Response struct {
 // Input is the JSON structure for API write requests
 type Input struct {
 	// Required fields
-	MaterialName  string  `json:"materialName"`
-	BrandName     string  `json:"brandName"`
-	MaterialClass int     `json:"materialClass"`
-	NominalWeight float32 `json:"nominalWeight"`
+	MaterialName  string             `json:"materialName"`
+	BrandName     string             `json:"brandName"`
+	MaterialClass MaterialClassInput `json:"materialClass"` // 0/1 or "FFF"/"SLA" (as returned by reads)
+	NominalWeight float32            `json:"nominalWeight"`
 
 	// MaterialType accepts a name (spec abbreviation such as "PETG", or an
 	// alias such as "PA-CF") or, for backward compatibility, an integer in
@@ -381,6 +381,40 @@ type Input struct {
 	ExpirationDate          uint32  `json:"expirationDate,omitempty"`
 }
 
+// MaterialClassInput is Input.materialClass: the spec value (0 = FFF, 1 = SLA)
+// or its name, so a read response can be sent back as a write unchanged.
+type MaterialClassInput uint16
+
+func (m *MaterialClassInput) UnmarshalJSON(b []byte) error {
+	var n int
+	if err := json.Unmarshal(b, &n); err == nil {
+		if n < 0 || n > 0xFFFF {
+			return fmt.Errorf("materialClass %d out of range", n)
+		}
+		*m = MaterialClassInput(n)
+		return nil
+	}
+	var name string
+	if err := json.Unmarshal(b, &name); err != nil {
+		return fmt.Errorf(`materialClass must be 0, 1, "FFF" or "SLA"`)
+	}
+	switch strings.ToUpper(strings.TrimSpace(name)) {
+	case "FFF":
+		*m = MaterialClassInput(MaterialClassFFF)
+	case "SLA":
+		*m = MaterialClassInput(MaterialClassSLA)
+	default:
+		return fmt.Errorf("unknown materialClass %q", name)
+	}
+	return nil
+}
+
+// DerivedInstanceUUID returns the instance UUID readers derive from an NFC
+// tag UID (MSB-first) when the tag doesn't store one.
+func DerivedInstanceUUID(tagUID []byte) string {
+	return formatUUID(GenerateInstanceUUID(tagUID))
+}
+
 // resolveMaterial turns the Input's materialType/materialTypeId/tags into
 // what gets written to the tag.
 func (i *Input) resolveMaterial() (materialSpec, error) {
@@ -392,7 +426,7 @@ func (i *Input) resolveMaterial() (materialSpec, error) {
 		}
 		m = material(MaterialType(*i.MaterialTypeID))
 	case len(i.MaterialType) == 0 || string(i.MaterialType) == "null":
-		if i.MaterialClass == int(MaterialClassFFF) {
+		if MaterialClass(i.MaterialClass) == MaterialClassFFF {
 			m = material(MaterialTypePLA) // pre-v0.8 default (missing int = 0 = PLA)
 		} // material_type is only defined for FFF; leave it out for SLA
 	default:
