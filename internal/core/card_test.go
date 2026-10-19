@@ -46,7 +46,7 @@ var mockCards = []MockCardData{
 		UID:        "0442488a837280",
 		ATR:        "3b8f8001804f0ca0000003060300030000000068",
 		Type:       "NTAG213",
-		Size:       180,
+		Size:       144,
 		Writable:   true,
 	},
 }

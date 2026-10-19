@@ -361,7 +361,7 @@ func TestIntegration_CardSizes(t *testing.T) {
 	}
 
 	expectedSizes := map[string]int{
-		"NTAG213":        180,  // Real UID: 0442488a837280
+		"NTAG213":        144,  // Real UID: 0442488a837280
 		"NTAG215":        504,  // Real UID: 04635d6bc22a81
 		"NTAG216":        888,  // Real UID: 5397e01aa20001
 		"MIFARE Classic": 1024, // Real UID: 932bae0e

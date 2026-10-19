@@ -125,7 +125,7 @@ curl -X POST http://127.0.0.1:32145/v1/readers/0/card \
 # For NTAG/Ultralight: pages field is populated. For MIFARE Classic: blocks + failedBlocks.
 curl http://127.0.0.1:32145/v1/readers/0/read
 # NTAG215 response:
-# → {"uid":"04484783...","type":"NTAG213","protocol":"NFC-A","size":180,"writable":true,
+# → {"uid":"04484783...","type":"NTAG213","protocol":"NFC-A","size":144,"writable":true,
 #    "dataType":"json","data":"{...}","pages":["04484783","8a837280",...]}
 # MIFARE Classic response:
 # → {"uid":"c34e2820","type":"MIFARE Classic","blocks":{"0":"c34e28...","1":"000000..."},
@@ -402,7 +402,7 @@ URL: `ws://127.0.0.1:32145/v1/ws`
 → {"type":"read_card_full","id":"r1","payload":{"readerIndex":0}}
 ← {"type":"read_card_full","id":"r1","payload":{
     "readerIndex":0,"readerName":"ACS ACR1552...",
-    "uid":"04484783...","type":"NTAG213","protocol":"NFC-A","size":180,"writable":true,
+    "uid":"04484783...","type":"NTAG213","protocol":"NFC-A","size":144,"writable":true,
     "dataType":"json","data":"{...}","pages":["04484783",...]
   }}
 

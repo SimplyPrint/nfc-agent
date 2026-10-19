@@ -75,7 +75,7 @@ GET_VERSION (v1):  FF 00 00 00 02 60 00    (NTAG type detection, standard passth
 GET_VERSION (v2):  FF 00 00 00 01 60       (works on ACR1252U where v1 fails)
   Response:        00 <vendor> <productType> <subtype> <major> <minor> <storage> <protocol> 90 00
   productType:     04 = NTAG family
-  storage byte:    0F = NTAG213 (48B), 11 = NTAG215 (496B), 13 = NTAG216 (872B)
+  storage byte:    0F = NTAG213 (144B user memory), 11 = NTAG215 (504B), 13 = NTAG216 (888B)
 
 Read page (NTAG/Ultralight, 4 bytes):  FF B0 00 <page> 04
   Response:        <4 bytes> 90 00
