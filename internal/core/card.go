@@ -1033,12 +1033,11 @@ func WriteDataWithURL(readerName string, data []byte, dataType string, url strin
 		if err := json.Unmarshal(data, &input); err != nil {
 			return fmt.Errorf("invalid openprinttag JSON: %w", err)
 		}
-		if uid := openPrintTagUID(cardInfo); len(uid) > 0 && strings.EqualFold(input.InstanceUUID, openprinttag.DerivedInstanceUUID(uid)) {
-			input.InstanceUUID = "" // equal to what readers derive: no need to store it (spec 3.2.0.2)
-		}
 		if input.InstanceUUID == "" {
 			// Rewriting an existing spool (e.g. a weight update) must keep its identity.
 			input.InstanceUUID = storedOpenPrintTagInstanceUUID(card, cardInfo)
+		} else if uid := openPrintTagUID(cardInfo); len(uid) > 0 && strings.EqualFold(input.InstanceUUID, openprinttag.DerivedInstanceUUID(uid)) {
+			input.InstanceUUID = "" // equal to what readers derive: no need to store it (spec 3.2.0.2)
 		}
 		cborPayload, err := input.Encode()
 		if err != nil {
@@ -1361,7 +1360,7 @@ func writeMifareClassic(card *scard.Card, data []byte) error {
 			return fmt.Errorf("failed to write block %d: %w", blockNum, err)
 		}
 		if len(rsp) < 2 || rsp[len(rsp)-2] != 0x90 {
-			return fmt.Errorf("write failed at block %d: status %02X %02X (key index %d)", blockNum, rsp[len(rsp)-2], rsp[len(rsp)-1], currentKeyIndex)
+			return fmt.Errorf("write failed at block %d: response %x (key index %d)", blockNum, rsp, currentKeyIndex)
 		}
 
 		blockNum++
@@ -1386,24 +1385,33 @@ func transparentExchangeACK(rsp []byte) bool {
 			return false
 		}
 		if tag == 0x97 {
-			return l >= 1 && body[i+2]&0x0F == 0x0A
+			// 4-bit ACK (0xA); accept it in either nibble. NAK codes (0x0, 0x1,
+			// 0x4, 0x5) can't match in either position.
+			return l >= 1 && (body[i+2]&0x0F == 0x0A || body[i+2]&0xF0 == 0xA0)
 		}
 		i += 2 + l
 	}
 	return false
 }
 
+// minType2UserBytes is the smallest Type 2 user area (Ultralight / Ultralight
+// EV1 MF0UL11: pages 4-15). Without a capability container that's all we can
+// safely assume: e.g. a factory-blank Ultralight EV1 can be misdetected as
+// NTAG213 on readers where GET_VERSION fails, and has its config at page 16.
+const minType2UserBytes = 48
+
 // ntagNDEFAreaBytes returns how many bytes from page 4 may hold NDEF data on a
-// Type 2 tag: the user memory size, further limited by the capability
-// container on page 3 when it declares a smaller area. Writing past it would
-// hit the configuration pages (on NTAG21x: AUTH0/ACCESS/PWD, i.e. password
-// protection). 0 means unknown.
-func ntagNDEFAreaBytes(card *scard.Card, userBytes int) int {
+// Type 2 tag, and whether the rest of that area should be zero-filled. With a
+// capability container (page 3) it's the declared NDEF area, capped at the
+// user memory size; writing past it would hit configuration pages (on NTAG21x
+// and Ultralight EV1: AUTH0/ACCESS/PWD, i.e. password protection). Without
+// one, only the smallest Type 2 user area is used and nothing is filled.
+func ntagNDEFAreaBytes(card *scard.Card, userBytes int) (area int, fill bool) {
 	cc, err := readNTAGPage(card, 3)
 	if err != nil || len(cc) < 4 || cc[0] != 0xE1 || cc[2] == 0 {
-		return userBytes
+		return minType2UserBytes, false
 	}
-	return ntagAreaFromCC(cc, userBytes)
+	return ntagAreaFromCC(cc, userBytes), true
 }
 
 func ntagAreaFromCC(cc []byte, userBytes int) int {
@@ -1417,14 +1425,14 @@ func ntagAreaFromCC(cc []byte, userBytes int) int {
 // writeNTAGNDEF writes an NDEF TLV from page 4 of a Type 2 tag (NTAG /
 // Ultralight) and zero-fills the rest of the NDEF area, never past it.
 func writeNTAGNDEF(card *scard.Card, userBytes int, tlv []byte) error {
-	area := ntagNDEFAreaBytes(card, userBytes)
-	if area <= 0 {
-		return writeNTAGPages(card, 4, tlv)
-	}
+	area, fill := ntagNDEFAreaBytes(card, userBytes)
 	if len(tlv) > area {
 		return fmt.Errorf("NDEF message is %d bytes but the tag only has room for %d", len(tlv), area)
 	}
-	data := append(append([]byte{}, tlv...), make([]byte, area-len(tlv))...)
+	data := tlv
+	if fill {
+		data = append(append([]byte{}, tlv...), make([]byte, area-len(tlv))...)
+	}
 	return writeNTAGPages(card, 4, data)
 }
 

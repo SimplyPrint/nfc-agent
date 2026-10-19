@@ -728,6 +728,8 @@ func TestTransparentExchangeACK(t *testing.T) {
 		{"NAK from hardware test (NTAG213 page 48)", "c003009000920104960202049701009000", false},
 		{"ACK", "c003009000920104960202049701 0a9000", true},
 		{"ACK with other bits in high nibble", "c0030090009701fa9000", true},
+		{"ACK in high nibble", "c0030090009701a09000", true},
+		{"NAK 0x1 (parity/CRC) in high nibble", "c0030090009701109000", false},
 		{"no response data object", "c0030090009000", false},
 		{"truncated TLV", "c00300900097", false},
 		{"empty", "", false},
