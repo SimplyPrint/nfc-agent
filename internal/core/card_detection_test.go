@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -26,7 +27,7 @@ func TestCardTypeDetection(t *testing.T) {
 			name:         "NTAG213 detection via GET_VERSION",
 			cardType:     "NTAG213",
 			expectedType: "NTAG213",
-			expectedSize: 180,
+			expectedSize: 144,
 		},
 		{
 			name:         "NTAG215 detection via GET_VERSION",
@@ -56,7 +57,7 @@ func TestCardTypeDetection(t *testing.T) {
 			name:         "MIFARE Ultralight detection (GET_VERSION garbage rejected)",
 			cardType:     "MIFARE Ultralight",
 			expectedType: "MIFARE Ultralight",
-			expectedSize: 64,
+			expectedSize: 48,
 		},
 	}
 
@@ -296,7 +297,7 @@ func TestCCBasedDetection(t *testing.T) {
 			ccSize:              0x12,
 			getVersionSucceeded: true,
 			expectedType:        "NTAG213",
-			expectedSize:        180,
+			expectedSize:        144,
 		},
 		{
 			name:                "NTAG213 CC but GET_VERSION failed (likely Ultralight with non-standard CC)",
@@ -304,7 +305,7 @@ func TestCCBasedDetection(t *testing.T) {
 			ccSize:              0x12,
 			getVersionSucceeded: false,
 			expectedType:        "MIFARE Ultralight",
-			expectedSize:        64,
+			expectedSize:        48,
 		},
 		{
 			name:                "NTAG215 CC with GET_VERSION success",
@@ -320,7 +321,7 @@ func TestCCBasedDetection(t *testing.T) {
 			ccSize:              0x3E,
 			getVersionSucceeded: false,
 			expectedType:        "MIFARE Ultralight",
-			expectedSize:        64,
+			expectedSize:        48,
 		},
 		{
 			name:                "NTAG216 CC with GET_VERSION success",
@@ -336,7 +337,7 @@ func TestCCBasedDetection(t *testing.T) {
 			ccSize:              0x6D,
 			getVersionSucceeded: false,
 			expectedType:        "MIFARE Ultralight",
-			expectedSize:        64,
+			expectedSize:        48,
 		},
 		{
 			name:                "MIFARE Ultralight CC (GET_VERSION not required)",
@@ -379,10 +380,10 @@ func TestCCBasedDetection(t *testing.T) {
 				// NTAG213 requires GET_VERSION confirmation
 				if tt.getVersionSucceeded {
 					detectedType = "NTAG213"
-					detectedSize = 180
+					detectedSize = 144
 				} else {
 					detectedType = "MIFARE Ultralight"
-					detectedSize = 64
+					detectedSize = 48
 				}
 			case 0x3E:
 				// NTAG215 requires GET_VERSION confirmation
@@ -391,7 +392,7 @@ func TestCCBasedDetection(t *testing.T) {
 					detectedSize = 504
 				} else {
 					detectedType = "MIFARE Ultralight"
-					detectedSize = 64
+					detectedSize = 48
 				}
 			case 0x6D:
 				// NTAG216 requires GET_VERSION confirmation
@@ -400,7 +401,7 @@ func TestCCBasedDetection(t *testing.T) {
 					detectedSize = 888
 				} else {
 					detectedType = "MIFARE Ultralight"
-					detectedSize = 64
+					detectedSize = 48
 				}
 			}
 
@@ -712,6 +713,85 @@ func TestOpenPrintTagUID(t *testing.T) {
 		got := hex.EncodeToString(openPrintTagUID(&Card{UID: tt.uid}))
 		if got != tt.want {
 			t.Errorf("openPrintTagUID(%s) = %s, want %s", tt.uid, got, tt.want)
+		}
+	}
+}
+
+// TestTransparentExchangeACK checks ACR1552 transparent-exchange write replies:
+// SW 90 00 alone isn't success, the tag must ACK (0xA) in data object 0x97.
+func TestTransparentExchangeACK(t *testing.T) {
+	tests := []struct {
+		name string
+		rsp  string
+		want bool
+	}{
+		{"NAK from hardware test (NTAG213 page 48)", "c003009000920104960202049701009000", false},
+		{"ACK", "c003009000920104960202049701 0a9000", true},
+		{"ACK with other bits in high nibble", "c0030090009701fa9000", true},
+		{"ACK in high nibble", "c0030090009701a09000", true},
+		{"NAK 0x1 (parity/CRC) in high nibble", "c0030090009701109000", false},
+		{"no response data object", "c0030090009000", false},
+		{"truncated TLV", "c00300900097", false},
+		{"empty", "", false},
+	}
+	for _, tt := range tests {
+		raw, err := hex.DecodeString(strings.ReplaceAll(tt.rsp, " ", ""))
+		if err != nil {
+			t.Fatalf("%s: bad hex: %v", tt.name, err)
+		}
+		if got := transparentExchangeACK(raw); got != tt.want {
+			t.Errorf("%s: transparentExchangeACK(%s) = %v, want %v", tt.name, tt.rsp, got, tt.want)
+		}
+	}
+}
+
+// TestNTAGAreaFromCC verifies Type 2 writes stay inside the NDEF area, so the
+// zero-fill can never reach NTAG21x configuration pages (AUTH0/ACCESS/PWD).
+func TestNTAGAreaFromCC(t *testing.T) {
+	tests := []struct {
+		name      string
+		cc        []byte
+		userBytes int
+		want      int
+	}{
+		{"NTAG213 factory CC", []byte{0xE1, 0x10, 0x12, 0x00}, 144, 144},
+		{"NTAG215 factory CC", []byte{0xE1, 0x10, 0x3E, 0x00}, 504, 496},
+		{"NTAG216 factory CC", []byte{0xE1, 0x10, 0x6D, 0x00}, 888, 872},
+		{"CC claims more than the chip", []byte{0xE1, 0x10, 0x3E, 0x00}, 144, 144},
+		{"unknown chip size: trust CC", []byte{0xE1, 0x10, 0x06, 0x00}, 0, 48},
+	}
+	for _, tt := range tests {
+		if got := ntagAreaFromCC(tt.cc, tt.userBytes); got != tt.want {
+			t.Errorf("%s: ntagAreaFromCC = %d, want %d", tt.name, got, tt.want)
+		}
+	}
+	// NTAG213 user memory is pages 4-39; page 40+ holds lock/config/PWD.
+	if 4+144/4 != 40 {
+		t.Fatal("NTAG213 NDEF area must end before page 40")
+	}
+}
+
+// TestPlausibleUID verifies truncated UIDs are rejected (hardware test: a
+// failed ISO 15693 read was followed by a 1-byte UID "04" that got cached).
+func TestPlausibleUID(t *testing.T) {
+	iso15693ATR := "3b8f8001804f0ca0000003060b00140000000077"
+	ntagATR := "3b8f8001804f0ca0000003060300030000000068"
+	tests := []struct {
+		uid  string
+		atr  string
+		want bool
+	}{
+		{"04", iso15693ATR, false},
+		{"83801366080104e0", iso15693ATR, true},
+		{"0439468a837280", iso15693ATR, false},
+		{"0439468a837280", ntagATR, true},
+		{"3a5e53be", ntagATR, true},
+		{"04", ntagATR, false},
+	}
+	for _, tt := range tests {
+		uid, _ := hex.DecodeString(tt.uid)
+		if got := plausibleUID(uid, tt.atr); got != tt.want {
+			t.Errorf("plausibleUID(%s, %s) = %v, want %v", tt.uid, tt.atr, got, tt.want)
 		}
 	}
 }

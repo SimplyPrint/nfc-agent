@@ -125,7 +125,7 @@ curl -X POST http://127.0.0.1:32145/v1/readers/0/card \
 # For NTAG/Ultralight: pages field is populated. For MIFARE Classic: blocks + failedBlocks.
 curl http://127.0.0.1:32145/v1/readers/0/read
 # NTAG215 response:
-# → {"uid":"04484783...","type":"NTAG213","protocol":"NFC-A","size":180,"writable":true,
+# → {"uid":"04484783...","type":"NTAG213","protocol":"NFC-A","size":144,"writable":true,
 #    "dataType":"json","data":"{...}","pages":["04484783","8a837280",...]}
 # MIFARE Classic response:
 # → {"uid":"c34e2820","type":"MIFARE Classic","blocks":{"0":"c34e28...","1":"000000..."},
@@ -148,9 +148,10 @@ curl -X POST http://127.0.0.1:32145/v1/readers/0/lock \
 curl -X POST http://127.0.0.1:32145/v1/readers/0/records \
   -H "Content-Type: application/json" \
   -d '{"records":[
-    {"type":"uri","format":"U","data":"https://example.com"},
-    {"type":"text","format":"T","data":"Hello"}
+    {"type":"url","data":"https://example.com"},
+    {"type":"text","data":"Hello"}
   ]}'
+# Record types: "url", "text", "json", "binary" (hex), "mime" (needs "mimeType"; "dataType":"binary" = base64 data)
 ```
 
 ---
@@ -356,8 +357,8 @@ URL: `ws://127.0.0.1:32145/v1/ws`
 → {"type":"write_records","id":"wr1","payload":{
     "readerIndex":0,
     "records":[
-      {"type":"uri","format":"U","data":"https://example.com"},
-      {"type":"text","format":"T","data":"Hello"}
+      {"type":"url","data":"https://example.com"},
+      {"type":"text","data":"Hello"}
     ]
   }}
 ← {"type":"records_written","id":"wr1","payload":{"success":"records written"}}
@@ -402,7 +403,7 @@ URL: `ws://127.0.0.1:32145/v1/ws`
 → {"type":"read_card_full","id":"r1","payload":{"readerIndex":0}}
 ← {"type":"read_card_full","id":"r1","payload":{
     "readerIndex":0,"readerName":"ACS ACR1552...",
-    "uid":"04484783...","type":"NTAG213","protocol":"NFC-A","size":180,"writable":true,
+    "uid":"04484783...","type":"NTAG213","protocol":"NFC-A","size":144,"writable":true,
     "dataType":"json","data":"{...}","pages":["04484783",...]
   }}
 
@@ -593,7 +594,7 @@ When writing with `dataType:"openprinttag"`, the `data` field is a JSON object:
 | `materialName` | string | yes | Display name (e.g. "PLA Galaxy Black") |
 | `brandName` | string | yes | Brand/manufacturer (e.g. "Prusament") |
 | `nominalWeight` | float | yes | Nominal weight in grams (e.g. 1000) |
-| `materialClass` | int | no | 0 = FFF/filament (default), 1 = SLA/resin |
+| `materialClass` | int/string | no | 0 or "FFF" = filament (default), 1 or "SLA" = resin |
 | `materialType` | string/int | no | Spec name (`"PETG"`, `"PA-CF"`, …) or legacy nfc-agent integer (0=PLA, 1=ABS, 2=PETG, 3=ASA, 4=PC, 5=Nylon, 6=TPU, 7=PVA, 8=HIPS, 9=PP, 10=PEI, 11=PEEK, 12=PA, 13–18=PA/PLA/PETG-CF/GF, 255=Other), translated to the spec value. Default PLA |
 | `materialTypeId` | int | no | Raw spec material_type value; overrides `materialType` |
 | `tags` | int[] | no | Extra spec tag values (key 28) |
@@ -607,7 +608,7 @@ When writing with `dataType:"openprinttag"`, the `data` field is a JSON object:
 
 More write fields (GTIN, brand-specific IDs, weights, lengths, bed/chamber temps, spool dimensions) and the read response format: see the OpenPrintTag section of README.md.
 
-Read responses return `materialType` as the spec abbreviation plus `materialTypeId` (raw value) and `tags`. UUIDs missing from the tag are derived per spec (brand, material, package from GTIN, instance from the tag UID).
+A read response's `data` can be sent back as write input unchanged; without `instanceUuid` a rewrite keeps the tag's stored instance UUID (none is generated). Read responses return `materialType` as the spec abbreviation plus `materialTypeId` (raw value) and `tags`. UUIDs missing from the tag are derived per spec (brand, material, package from GTIN, instance from the tag UID).
 
 See full spec: https://specs.openprinttag.org/#/
 
