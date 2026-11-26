@@ -4,7 +4,9 @@ package welcome
 
 import (
 	"log"
+	"os"
 	"os/exec"
+	"strings"
 )
 
 const welcomeTitle = "NFC Agent"
@@ -42,9 +44,9 @@ If the app crashes, diagnostic information will be sent to help us fix bugs fast
 
 You can change this later in the status page settings.`
 
-// Linux has no single native dialog API, so dialogs are shown via zenity
-// (GNOME and most desktops) or kdialog (KDE). If neither is installed the
-// dialogs are skipped and prompts answer "no".
+// Linux has no single native dialog API, so dialogs are shown via kdialog
+// (preferred on KDE) or zenity (GNOME and most other desktops). If neither is
+// installed, CanShowDialogs reports false and the first-run flow is postponed.
 
 // ShowWelcome displays a welcome dialog
 func ShowWelcome() {
@@ -68,27 +70,54 @@ func PromptCrashReporting() bool {
 	return askYesNo(welcomeTitle, crashReportingPromptMessage)
 }
 
+// CanShowDialogs reports whether a dialog tool (zenity or kdialog) is installed.
+func CanShowDialogs() bool {
+	return dialogTool() != ""
+}
+
+// dialogTool picks the dialog program to use: kdialog on KDE when available,
+// otherwise zenity, otherwise kdialog. Returns "" when neither is installed.
+func dialogTool() string {
+	_, zenityErr := exec.LookPath("zenity")
+	_, kdialogErr := exec.LookPath("kdialog")
+	hasZenity, hasKdialog := zenityErr == nil, kdialogErr == nil
+
+	if hasKdialog && strings.Contains(strings.ToUpper(os.Getenv("XDG_CURRENT_DESKTOP")), "KDE") {
+		return "kdialog"
+	}
+	if hasZenity {
+		return "zenity"
+	}
+	if hasKdialog {
+		return "kdialog"
+	}
+	return ""
+}
+
+// The dialog commands below use fixed binary names. title/message are the
+// constant strings in this file (plus our own version string), never user input.
+
 func showInfo(title, message string) {
-	if path, err := exec.LookPath("zenity"); err == nil {
-		_ = exec.Command(path, "--info", "--no-markup", "--title", title, "--text", message).Run()
-		return
+	switch dialogTool() {
+	case "kdialog":
+		_ = exec.Command("kdialog", "--title", title, "--msgbox", message).Run() // #nosec G204 -- fixed binary, constant text
+	case "zenity":
+		_ = exec.Command("zenity", "--info", "--no-markup", "--title", title, "--text", message).Run() // #nosec G204 -- fixed binary, constant text
+	default:
+		log.Printf("No dialog tool (zenity/kdialog) found; skipping %q dialog", title)
 	}
-	if path, err := exec.LookPath("kdialog"); err == nil {
-		_ = exec.Command(path, "--title", title, "--msgbox", message).Run()
-		return
-	}
-	log.Printf("No dialog tool (zenity/kdialog) found; skipping %q dialog", title)
 }
 
 func askYesNo(title, message string) bool {
 	// Both tools exit 0 for "Yes" and non-zero for "No"/closed.
-	if path, err := exec.LookPath("zenity"); err == nil {
-		return exec.Command(path, "--question", "--no-markup", "--title", title, "--text", message,
+	switch dialogTool() {
+	case "kdialog":
+		return exec.Command("kdialog", "--title", title, "--yesno", message).Run() == nil // #nosec G204 -- fixed binary, constant text
+	case "zenity":
+		return exec.Command("zenity", "--question", "--no-markup", "--title", title, "--text", message, // #nosec G204 -- fixed binary, constant text
 			"--ok-label", "Yes", "--cancel-label", "No").Run() == nil
+	default:
+		log.Printf("No dialog tool (zenity/kdialog) found; skipping %q prompt", title)
+		return false
 	}
-	if path, err := exec.LookPath("kdialog"); err == nil {
-		return exec.Command(path, "--title", title, "--yesno", message).Run() == nil
-	}
-	log.Printf("No dialog tool (zenity/kdialog) found; skipping %q prompt", title)
-	return false
 }

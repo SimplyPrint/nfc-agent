@@ -1,8 +1,9 @@
-//go:build notray
+//go:build notray || !(darwin || linux || windows)
 
 package tray
 
-// TrayApp is a no-op stub used when built with the "notray" tag (headless only).
+// TrayApp is a no-op stub used when built with the "notray" tag, or on platforms
+// without tray support (headless only).
 type TrayApp struct {
 	serverAddr string
 	onQuit     func()
@@ -31,7 +32,7 @@ func (t *TrayApp) RunWithServer(serverStart func()) {
 // SetReaderCount is a no-op
 func (t *TrayApp) SetReaderCount(count int) {}
 
-// IsSupported returns false: tray support was compiled out
+// IsSupported returns false: tray support was compiled out or is unavailable
 func IsSupported() bool {
 	return false
 }

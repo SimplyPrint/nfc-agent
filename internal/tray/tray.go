@@ -1,4 +1,4 @@
-//go:build !notray
+//go:build !notray && (darwin || linux || windows)
 
 package tray
 
@@ -157,6 +157,14 @@ func (t *TrayApp) updateStatus() {
 // showFirstRunPrompts displays welcome dialogs and prompts on first run.
 // This runs after the tray is initialized to avoid race conditions with Cocoa on macOS.
 func (t *TrayApp) showFirstRunPrompts() {
+	// If no dialog can be shown (Linux without zenity/kdialog), don't mark the
+	// first run as done - otherwise the user would never be offered auto-start or
+	// crash reporting, even after installing a dialog tool.
+	if !welcome.CanShowDialogs() {
+		log.Println("No dialog tool available; postponing first-run prompts until one is installed")
+		return
+	}
+
 	welcome.ShowWelcome()
 
 	// Check if auto-start is not already configured (e.g., by Homebrew)
@@ -204,14 +212,20 @@ func (t *TrayApp) SetReaderCount(count int) {
 func (t *TrayApp) openBrowser(url string) {
 	var cmd *exec.Cmd
 
+	// url is always the agent's own status page URL (built from serverAddr), never user input.
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("open", url)
+		cmd = exec.Command("open", url) // #nosec G204 -- fixed binary, url is our own status page
 	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url) // #nosec G204 -- fixed binary, url is our own status page
 	default:
-		cmd = exec.Command("xdg-open", url)
+		cmd = exec.Command("xdg-open", url) // #nosec G204 -- fixed binary, url is our own status page
 	}
 
-	cmd.Start()
+	if err := cmd.Start(); err != nil {
+		log.Printf("Failed to open browser: %v", err)
+		return
+	}
+	// Reap the child so it doesn't linger as a zombie for the life of the agent
+	go func() { _ = cmd.Wait() }()
 }

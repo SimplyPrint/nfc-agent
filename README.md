@@ -140,8 +140,9 @@ sudo mv nfc-agent /usr/local/bin/
 # Install PC/SC daemon and drivers
 sudo pacman -S pcsclite ccid
 
-# System tray icon (optional - without it, use --no-tray)
-sudo pacman -S libayatana-appindicator
+# Required: the binary links GTK3 + Ayatana AppIndicator (system tray),
+# even when started with --no-tray
+sudo pacman -S gtk3 libayatana-appindicator
 
 # For ACS readers (ACR122U, ACR1252U, etc.), install the ACS-specific driver from AUR:
 yay -S acsccid   # or: paru -S acsccid
@@ -153,11 +154,12 @@ sudo systemctl enable --now pcscd
 
 **System tray on Linux**
 
-When started from a desktop session, NFC Agent shows a tray icon (AppIndicator / StatusNotifierItem) with the same menu as on Windows and macOS. Welcome and About dialogs use `zenity`, or `kdialog` on KDE.
+When started from a desktop session, NFC Agent shows a tray icon (AppIndicator / StatusNotifierItem) with the same menu as on Windows and macOS. Welcome and About dialogs use `kdialog` on KDE when installed, and `zenity` everywhere else. If neither is installed, the dialogs are skipped and the first-run prompts are shown on a later launch once one is available.
 
 - **KDE Plasma, Cinnamon, XFCE, Budgie, Ubuntu GNOME** show the icon out of the box.
 - **Stock GNOME (Fedora, Debian, Arch, ...)** needs the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/) (`gnome-shell-extension-appindicator`). Without it the agent still runs, but the icon is not visible.
-- With no display (`DISPLAY`/`WAYLAND_DISPLAY` unset, e.g. over SSH or as a system service), the agent runs headless automatically. Use `--no-tray` to force headless mode.
+- With no usable display (e.g. over SSH or as a system service), the agent runs headless automatically. Use `--no-tray` to force headless mode.
+- The released binaries link GTK3 and Ayatana AppIndicator, so those libraries must be installed even for headless use (the `.deb`/`.rpm` pull them in). For servers without them, build from source with `-tags notray` (see [Building from Source](#building-from-source)).
 
 **Important: Kernel Module Fix (All Distributions)**
 

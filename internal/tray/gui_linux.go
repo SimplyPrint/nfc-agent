@@ -3,6 +3,8 @@
 package tray
 
 import (
+	"context"
+	"errors"
 	"log"
 	"os"
 	"os/exec"
@@ -10,7 +12,10 @@ import (
 	"time"
 )
 
-const statusNotifierWatcher = "org.kde.StatusNotifierWatcher"
+const (
+	statusNotifierWatcher = "org.kde.StatusNotifierWatcher"
+	dbusQueryTimeout      = 2 * time.Second
+)
 
 // WaitForGUI checks whether a StatusNotifierItem host (the thing that actually
 // draws AppIndicator icons) is present on the session bus.
@@ -38,22 +43,28 @@ func WaitForGUI(timeout time.Duration, retryInterval time.Duration) bool {
 
 // hasStatusNotifierWatcher reports whether the StatusNotifierWatcher name is owned
 // on the session bus. checked is false when no D-Bus CLI tool was available.
+// Each query is bounded by a short timeout so a slow or wedged session bus can't
+// delay startup (the HTTP server starts only after this returns).
 func hasStatusNotifierWatcher() (present bool, checked bool) {
-	if path, err := exec.LookPath("busctl"); err == nil {
-		// busctl status exits non-zero when the name has no owner
-		err := exec.Command(path, "--user", "status", statusNotifierWatcher).Run()
+	ctx, cancel := context.WithTimeout(context.Background(), dbusQueryTimeout)
+	defer cancel()
+
+	// busctl status exits non-zero when the name has no owner
+	err := exec.CommandContext(ctx, "busctl", "--user", "status", statusNotifierWatcher).Run()
+	if !errors.Is(err, exec.ErrNotFound) {
 		return err == nil, true
 	}
-	if path, err := exec.LookPath("dbus-send"); err == nil {
-		out, err := exec.Command(path, "--session", "--print-reply",
-			"--dest=org.freedesktop.DBus", "/org/freedesktop/DBus",
-			"org.freedesktop.DBus.NameHasOwner", "string:"+statusNotifierWatcher).Output()
-		if err != nil {
-			return false, true
-		}
-		return strings.Contains(string(out), "boolean true"), true
+
+	out, err := exec.CommandContext(ctx, "dbus-send", "--session", "--print-reply",
+		"--dest=org.freedesktop.DBus", "/org/freedesktop/DBus",
+		"org.freedesktop.DBus.NameHasOwner", "string:"+statusNotifierWatcher).Output()
+	if errors.Is(err, exec.ErrNotFound) {
+		return false, false
 	}
-	return false, false
+	if err != nil {
+		return false, true
+	}
+	return strings.Contains(string(out), "boolean true"), true
 }
 
 // logGUIEnvironment logs environment variables relevant to tray support on Linux
