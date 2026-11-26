@@ -1,4 +1,4 @@
-//go:build !notray && !linux
+//go:build !notray
 
 package tray
 
