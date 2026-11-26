@@ -1,4 +1,4 @@
-//go:build !linux
+//go:build !notray
 
 package tray
 
@@ -214,9 +214,4 @@ func (t *TrayApp) openBrowser(url string) {
 	}
 
 	cmd.Start()
-}
-
-// IsSupported returns true if the system tray is supported on this platform
-func IsSupported() bool {
-	return true
 }

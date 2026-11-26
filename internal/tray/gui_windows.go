@@ -1,10 +1,10 @@
-//go:build !darwin
+//go:build windows
 
 package tray
 
 import "time"
 
-// WaitForGUI is a no-op on non-macOS platforms.
+// WaitForGUI is a no-op on Windows.
 // Returns true immediately as no GUI wait is needed.
 func WaitForGUI(timeout time.Duration, retryInterval time.Duration) bool {
 	return true

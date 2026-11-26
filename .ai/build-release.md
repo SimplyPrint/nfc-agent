@@ -5,14 +5,16 @@
 ```bash
 # macOS — PC/SC built-in, no extra deps
 
-# Linux
-sudo apt install libpcsclite-dev      # Debian/Ubuntu
-sudo dnf install pcsc-lite-devel      # Fedora/RHEL
+# Linux (GTK3 + Ayatana AppIndicator are for the system tray)
+sudo apt install libpcsclite-dev libgtk-3-dev libayatana-appindicator3-dev                 # Debian/Ubuntu
+sudo dnf install pcsc-lite-devel gtk3-devel libayatana-appindicator-gtk3-devel             # Fedora/RHEL
 
 # Windows — PC/SC (WinSCard) built-in
 ```
 
 Go 1.22+ required. CGO must be enabled (it is by default).
+
+Build tag `notray` compiles the tray out entirely (no GTK/AppIndicator link-time or runtime deps). The snap uses it. On Linux, the tray is only started when `DISPLAY` or `WAYLAND_DISPLAY` is set. Otherwise the agent runs headless.
 
 ---
 
@@ -107,8 +109,8 @@ This triggers `.github/workflows/build.yml` which:
 
 **Linux** (`ubuntu-latest` via GoReleaser):
 - `.tar.gz` archive
-- `.deb` package (includes systemd user service, desktop entry, kernel module blacklist)
-- `.rpm` package
+- `.deb` package (includes systemd user service, desktop entry, kernel module blacklist). It depends on `libayatana-appindicator3-1` for the tray.
+- `.rpm` package (depends on `libayatana-appindicator-gtk3`)
 - Post-install script sets up PC/SC daemon and kernel module loading
 
 ### SDK Publishing

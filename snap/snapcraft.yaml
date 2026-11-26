@@ -45,7 +45,7 @@ parts:
       - libpcsclite1
       - pcscd
     override-build: |
-      go build -ldflags="-s -w -X github.com/SimplyPrint/nfc-agent/internal/api.Version=${SNAPCRAFT_PROJECT_VERSION}" -o $SNAPCRAFT_PART_INSTALL/bin/nfc-agent ./cmd/nfc-agent
+      go build -tags notray -ldflags="-s -w -X github.com/SimplyPrint/nfc-agent/internal/api.Version=${SNAPCRAFT_PROJECT_VERSION}" -o $SNAPCRAFT_PART_INSTALL/bin/nfc-agent ./cmd/nfc-agent
 
 layout:
   /run/pcscd:
