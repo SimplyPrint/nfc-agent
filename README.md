@@ -140,6 +140,10 @@ sudo mv nfc-agent /usr/local/bin/
 # Install PC/SC daemon and drivers
 sudo pacman -S pcsclite ccid
 
+# Required: the binary links GTK3 + Ayatana AppIndicator (system tray),
+# even when started with --no-tray
+sudo pacman -S gtk3 libayatana-appindicator
+
 # For ACS readers (ACR122U, ACR1252U, etc.), install the ACS-specific driver from AUR:
 yay -S acsccid   # or: paru -S acsccid
 
@@ -147,6 +151,15 @@ sudo systemctl enable --now pcscd
 ```
 
 > **Note:** Unlike the `.deb` and `.rpm` packages, the tar.gz installation requires manual setup of the PC/SC daemon. If you see "No readers found", ensure `pcscd` is running (`systemctl status pcscd`).
+
+**System tray on Linux**
+
+When started from a desktop session, NFC Agent shows a tray icon (AppIndicator / StatusNotifierItem) with the same menu as on Windows and macOS. Welcome and About dialogs use `kdialog` on KDE when installed, and `zenity` everywhere else. If neither is installed, the dialogs are skipped and the first-run prompts are shown on a later launch once one is available.
+
+- **KDE Plasma, Cinnamon, XFCE, Budgie, Ubuntu GNOME** show the icon out of the box.
+- **Stock GNOME (Fedora, Debian, Arch, ...)** needs the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/) (`gnome-shell-extension-appindicator`). Without it the agent still runs, but the icon is not visible.
+- With no usable display (e.g. over SSH or as a system service), the agent runs headless automatically. Use `--no-tray` to force headless mode.
+- The released binaries link GTK3 and Ayatana AppIndicator, so those libraries must be installed even for headless use (the `.deb`/`.rpm` pull them in). For servers without them, build from source with `-tags notray` (see [Building from Source](#building-from-source)).
 
 **Important: Kernel Module Fix (All Distributions)**
 
@@ -833,8 +846,16 @@ See the [OpenPrintTag specification](https://specs.openprinttag.org) for the com
 
 **Linux:**
 ```bash
-sudo apt install libpcsclite-dev  # Debian/Ubuntu
-sudo dnf install pcsc-lite-devel  # Fedora/RHEL
+# Debian/Ubuntu
+sudo apt install libpcsclite-dev libgtk-3-dev libayatana-appindicator3-dev
+# Fedora/RHEL
+sudo dnf install pcsc-lite-devel gtk3-devel libayatana-appindicator-gtk3-devel
+```
+
+The GTK/AppIndicator libraries are only needed for the system tray. To build a headless-only binary without them, use the `notray` build tag:
+
+```bash
+go build -tags notray -o nfc-agent ./cmd/nfc-agent
 ```
 
 **Windows:**

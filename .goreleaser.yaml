@@ -50,13 +50,19 @@ nfpms:
       - rpm
     recommends:
       - pcscd
+      # Used for the welcome/about dialogs shown from the system tray
+      - zenity
     overrides:
       deb:
         dependencies:
           - libpcsclite1
+          # System tray (pulls in GTK3)
+          - libayatana-appindicator3-1
       rpm:
         dependencies:
           - pcsc-lite-libs
+          # System tray (pulls in GTK3)
+          - libayatana-appindicator-gtk3
     contents:
       - src: ./build/linux/nfc-agent.service
         dst: /usr/lib/systemd/user/nfc-agent.service

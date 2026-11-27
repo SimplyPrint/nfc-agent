@@ -3,12 +3,14 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"text/template"
+	"time"
 )
 
 const (
@@ -138,6 +140,12 @@ func (s *linuxService) Uninstall() error {
 	// Also clean up legacy systemd service if present
 	s.cleanupLegacySystemd()
 
+	// Disable the packaged systemd user unit if enabled. No --now: the agent
+	// may be running under it and would otherwise stop itself mid-request.
+	if s.systemdUnitEnabled() {
+		_ = exec.Command("systemctl", "--user", "disable", appName+".service").Run()
+	}
+
 	return nil
 }
 
@@ -161,7 +169,18 @@ func (s *linuxService) IsInstalled() bool {
 	if _, err := os.Stat(s.systemdServicePath()); err == nil {
 		return true
 	}
-	return false
+	// The .deb/.rpm ship a systemd user unit (/usr/lib/systemd/user) that users
+	// may have enabled. Treat that as auto-start too, so we don't add an XDG
+	// autostart entry on top of it and start two agents at login.
+	return s.systemdUnitEnabled()
+}
+
+// systemdUnitEnabled reports whether the nfc-agent systemd user unit is enabled
+// for this user (packaged or legacy).
+func (s *linuxService) systemdUnitEnabled() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return exec.CommandContext(ctx, "systemctl", "--user", "is-enabled", "--quiet", appName+".service").Run() == nil
 }
 
 func (s *linuxService) Status() (string, error) {
@@ -175,7 +194,9 @@ func (s *linuxService) Status() (string, error) {
 		systemdExists = true
 	}
 
-	if !autostartExists && !systemdExists {
+	unitEnabled := s.systemdUnitEnabled()
+
+	if !autostartExists && !systemdExists && !unitEnabled {
 		return "not installed", nil
 	}
 
@@ -195,6 +216,8 @@ func (s *linuxService) Status() (string, error) {
 	}
 	if systemdExists {
 		methods = append(methods, "systemd (legacy)")
+	} else if unitEnabled {
+		methods = append(methods, "systemd")
 	}
 	return fmt.Sprintf("installed (%s) but not running", strings.Join(methods, ", ")), nil
 }

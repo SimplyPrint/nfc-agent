@@ -211,6 +211,21 @@ func run(cfg *config.Config, headless bool) {
 		}
 	}
 
+	shutdown := func() {
+		log.Println("Shutting down...")
+		core.ShutdownProxmark3()
+		os.Exit(0)
+	}
+
+	// Handle SIGINT/SIGTERM (Ctrl+C, session logout, service stop) in both modes
+	// so the Proxmark3 client is always shut down cleanly.
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		shutdown()
+	}()
+
 	// Determine if we should use system tray
 	useTray := !headless && tray.IsSupported()
 
@@ -220,11 +235,7 @@ func run(cfg *config.Config, headless bool) {
 		// Create tray app with quit handler
 		// Pass isFirstRun so welcome prompts can be shown after tray initialization
 		// (avoids race condition with Cocoa event loop on macOS)
-		trayApp := tray.New(addr, welcome.IsFirstRun(), func() {
-			log.Println("Shutting down...")
-			core.ShutdownProxmark3()
-			os.Exit(0)
-		})
+		trayApp := tray.New(addr, welcome.IsFirstRun(), shutdown)
 
 		// Run tray with server - this blocks on the main thread until quit
 		// (required for macOS Cocoa compatibility)
@@ -233,19 +244,8 @@ func run(cfg *config.Config, headless bool) {
 		if headless {
 			log.Println("Running in headless mode (no system tray)")
 		} else {
-			log.Println("System tray not supported on this platform, running headless")
+			log.Println("System tray unavailable (unsupported platform or no usable display), running headless")
 		}
-
-		// Set up signal handling for graceful shutdown
-		sigChan := make(chan os.Signal, 1)
-		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-		go func() {
-			<-sigChan
-			log.Println("Shutting down...")
-			core.ShutdownProxmark3()
-			os.Exit(0)
-		}()
 
 		startServer()
 	}

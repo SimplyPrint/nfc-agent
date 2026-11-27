@@ -9,7 +9,7 @@ NFC Agent is a **local HTTP/WebSocket bridge** (inspired by DYMO Connect JS SDK 
 Web App / SimplyPrint ↔ HTTP/WS localhost:32145 ↔ NFC Agent (Go) ↔ PC/SC ↔ USB Reader ↔ NFC Card
 ```
 
-Cross-platform: macOS, Windows, Linux. Go 1.22+, CGO required (PC/SC).
+Cross-platform: macOS, Windows, Linux. Go 1.22+, CGO required (PC/SC; on Linux also GTK3 + Ayatana AppIndicator for the tray. Build with `-tags notray` to skip them).
 
 ## Design Philosophy
 

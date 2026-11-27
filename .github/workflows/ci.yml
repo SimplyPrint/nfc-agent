@@ -35,7 +35,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libpcsclite-dev pcscd
+          sudo apt-get install -y libpcsclite-dev libgtk-3-dev libayatana-appindicator3-dev pcscd
 
       - name: Download dependencies
         run: go mod download
@@ -71,7 +71,7 @@ jobs:
       - name: Install PC/SC dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libpcsclite-dev
+          sudo apt-get install -y libpcsclite-dev libgtk-3-dev libayatana-appindicator3-dev
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v7
@@ -101,7 +101,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libpcsclite-dev
+          sudo apt-get install -y libpcsclite-dev libgtk-3-dev libayatana-appindicator3-dev
 
       - name: Build
         run: go build -v ./...
@@ -126,7 +126,7 @@ jobs:
       - name: Install PC/SC dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libpcsclite-dev
+          sudo apt-get install -y libpcsclite-dev libgtk-3-dev libayatana-appindicator3-dev
 
       - name: Run tests with coverage
         run: go test -coverprofile=coverage.out -covermode=atomic ./...

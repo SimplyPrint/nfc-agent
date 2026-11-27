@@ -90,3 +90,8 @@ func PromptCrashReporting() bool {
 	}
 	return strings.Contains(string(out), "Yes")
 }
+
+// CanShowDialogs reports whether native dialogs can be shown. Always true here.
+func CanShowDialogs() bool {
+	return true
+}
